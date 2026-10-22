@@ -6,5 +6,6 @@
 <li><b>Liaison vidéo</b> : débit et coupures.</li>
 <li>Lecture du vol avec timeline, HUD et graphiques synchronisés.</li>
 </ul>
-<p>Fichiers lus : logs télémétrie EdgeTX / OpenTX (.csv) de la carte SD de la radio, sous-titres .srt DJI / Walksnail.</p>
+<p>Fichiers lus : logs télémétrie EdgeTX / OpenTX (.csv) de la carte SD de la radio, logs Blackbox Betaflight (.bbl / .bfl), enregistrements .mp4 des DJI Goggles 3, sous-titres .srt DJI / Walksnail.</p>
+<p>Licence GPL-3.0. La lecture des logs Blackbox reprend le parseur du Blackbox Explorer de Betaflight.</p>
 <p>Tout est traité sur le téléphone, aucun fichier n'est envoyé sur un serveur. Les fonds de carte et le relief sont téléchargés depuis Internet (imagerie Esri, OpenTopoMap, AWS Terrain Tiles).</p>

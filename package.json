@@ -18,7 +18,7 @@
     "type": "git",
     "url": "git+https://github.com/harantol/fpv_analytics.git"
   },
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "bugs": {
     "url": "https://github.com/harantol/fpv_analytics/issues"
   },
@@ -35,6 +35,7 @@
     "idb-keyval": "^6.3.0",
     "maplibre-gl": "^5.24.0",
     "mp4box": "^2.4.1",
+    "semver": "^7.8.5",
     "tesseract.js": "^7.0.0",
     "uplot": "^1.6.32",
     "wasm-feature-detect": "^1.9.0"
@@ -42,6 +43,7 @@
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.5.3",
+    "@types/semver": "^7.8.0",
     "fake-indexeddb": "^6.2.6",
     "typescript": "^5.9.3",
     "vite": "^7.3.7",
