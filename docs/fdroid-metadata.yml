@@ -1,0 +1,19 @@
+# Métadonnées pour votre serveur fdroidserver.
+# À copier dans <votre-repo>/metadata/io.github.harantol.fpvanalytics.yml
+Categories:
+  - Science & Education
+  - Sports & Health
+License: MIT
+AuthorName: Olivier Harant
+SourceCode: https://github.com/harantol/fpv_analytics
+IssueTracker: https://github.com/harantol/fpv_analytics/issues
+Changelog: https://github.com/harantol/fpv_analytics/blob/main/CHANGELOG.md
+
+AutoName: FPV Analytics
+Name: FPV Analytics
+Summary: Analyse de vols FPV long range (trace GPS 3D, batterie, radio, vidéo)
+
+# Imagerie satellite Esri : service en ligne non libre
+AntiFeatures:
+  NonFreeNet:
+    fr: Fond de carte satellite fourni par Esri (service non libre). Les fonds OpenTopoMap et le relief AWS Terrain Tiles sont libres.
