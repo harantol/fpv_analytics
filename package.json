@@ -1,6 +1,5 @@
 {
   "name": "fpv-analytics",
-  "version": "0.1.0",
   "description": "Analyse de vols FPV long range : trace GPS 3D, batterie, liaison radio et vidéo",
   "scripts": {
     "dev": "vite",
@@ -11,7 +10,8 @@
     "android:sync": "npm run build && cap sync android",
     "android:open": "cap open android",
     "android:apk": "npm run android:sync && cd android && ./gradlew assembleRelease",
-    "assets": "capacitor-assets generate --android --iconBackgroundColor \"#0b1220\" --iconBackgroundColorDark \"#0b1220\" --splashBackgroundColor \"#0b1220\" --splashBackgroundColorDark \"#0b1220\""
+    "assets": "capacitor-assets generate --android --iconBackgroundColor \"#0b1220\" --iconBackgroundColorDark \"#0b1220\" --splashBackgroundColor \"#0b1220\" --splashBackgroundColorDark \"#0b1220\"",
+    "version": "node scripts/version.mjs"
   },
   "repository": {
     "type": "git",
