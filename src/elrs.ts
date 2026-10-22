@@ -88,12 +88,12 @@ export function packetRate(rfmd: string | undefined, version: ElrsVersion): Pack
 
 const KEY = 'fpv-analytics.elrsVersion';
 
-/** Version d'ELRS choisie (4.x par défaut, la version actuelle). */
+/** Version d'ELRS choisie (3.x par défaut, la plus répandue sur les radios). */
 export function getElrsVersion(): ElrsVersion {
   try {
-    return localStorage.getItem(KEY) === '3' ? 3 : 4;
+    return localStorage.getItem(KEY) === '4' ? 4 : 3;
   } catch {
-    return 4;
+    return 3;
   }
 }
 

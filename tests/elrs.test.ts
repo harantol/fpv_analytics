@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { packetRate } from '../src/elrs';
+import { describe, expect, it, vi } from 'vitest';
+import { getElrsVersion, packetRate, setElrsVersion } from '../src/elrs';
 
 describe('débit de paquets ELRS (champ RFMD)', () => {
   it('ELRS 4.x : 900 MHz, 2,4 GHz et double bande', () => {
@@ -21,5 +21,18 @@ describe('débit de paquets ELRS (champ RFMD)', () => {
     expect(packetRate(undefined, 4)).toBeNull();
     expect(packetRate('15', 4)).toBeNull();
     expect(packetRate('D250', 4)).toBeNull();
+  });
+});
+
+describe('getElrsVersion', () => {
+  it('ELRS 3.x par défaut, 4.x seulement si choisi', () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) });
+    expect(getElrsVersion()).toBe(3);
+    setElrsVersion(4);
+    expect(getElrsVersion()).toBe(4);
+    setElrsVersion(3);
+    expect(getElrsVersion()).toBe(3);
+    vi.unstubAllGlobals();
   });
 });

@@ -505,7 +505,7 @@ function renderStats(s: Stats) {
     cards.push({
       label: 'Débit de paquets ELRS',
       value: rates.main,
-      sub: `${rates.detail} · <select class="elrs-version" aria-label="Version d'ELRS"><option value="4"${getElrsVersion() === 4 ? ' selected' : ''}>ELRS 4.x</option><option value="3"${getElrsVersion() === 3 ? ' selected' : ''}>ELRS 3.x</option></select>`,
+      sub: `${rates.detail} · <select class="elrs-version" aria-label="Version d'ELRS"><option value="3"${getElrsVersion() === 3 ? ' selected' : ''}>ELRS 3.x</option><option value="4"${getElrsVersion() === 4 ? ' selected' : ''}>ELRS 4.x</option></select>`,
     });
   if (s.minVideoSignal !== undefined) cards.push({ label: 'Signal vidéo min', value: `${s.minVideoSignal}/4`, level: level(s.minVideoSignal, 2, 1) });
   if (s.avgBitrate !== undefined) cards.push({ label: 'Débit vidéo moyen', value: fmt(s.avgBitrate, 1, 'Mbps') });
