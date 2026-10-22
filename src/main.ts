@@ -14,6 +14,7 @@ import { isNative, setupNative } from './native';
 import { compactEvents, detectEvents, type FlightEvent } from './events';
 import { deleteFlight, flightKey, fromStoredLog, fromStoredVideo, getFlight, listFlights, requestPersistence, saveFlight, toStoredLog, toStoredVideo, updateFlight, updateFlightVideo, type StoredLog } from './library';
 import type { BlackboxLog } from './parsers/blackbox';
+import { alignBlackbox, mergeLogs, pairBlackbox, type Alignment } from './merge';
 import { pairVideos, toNaiveLocal } from './pairing';
 import { setupOfflineDialog } from './offline-ui';
 import { VideoPlayer } from './videoplayer';
@@ -26,7 +27,12 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const state = {
   /** Id du vol en bibliothèque (null pour la démo). */
   currentId: null as number | null,
+  /** Log affiché : radio, Blackbox, ou les deux combinés. */
   log: null as FlightLog | null,
+  /** Les deux logs d'un vol combiné, et le calage du Blackbox (s, sur le log radio). */
+  radio: null as FlightLog | null,
+  bbx: null as FlightLog | null,
+  bbxAlign: null as Alignment | null,
   video: null as VideoLog | null,
   flight: null as Flight | null,
   metric: null as Metric | null,
@@ -124,12 +130,38 @@ async function readBlackbox(file: File): Promise<BlackboxLog[]> {
   return logs;
 }
 
+/** Comment le Blackbox a été calé sur le log radio, en clair. */
+function alignLabel(a: Alignment): string {
+  const how = { gps: `calage par la trace GPS, écart ${a.error ?? '?'} m`, arm: "calage sur l'armement", clock: 'calage sur les horloges', none: 'calage manuel' }[a.method];
+  return `${how}, décalage ${a.offset.toFixed(1)} s`;
+}
+
 interface ImportedLog {
   id: string;
   log: FlightLog;
   key: string;
   csv?: string;
   bbx?: StoredLog;
+  bbxOffset?: number;
+  /** Calage trouvé quand un Blackbox a été combiné à ce log radio. */
+  align?: Alignment;
+}
+
+/** Combine chaque log radio avec le Blackbox du même vol (voir pairBlackbox). */
+function combineLogs(logs: ImportedLog[]): ImportedLog[] {
+  const radios = logs.filter((l) => l.csv !== undefined);
+  const bbxs = logs.filter((l) => l.bbx !== undefined);
+  if (radios.length === 0 || bbxs.length === 0) return logs;
+  const pairs = pairBlackbox(radios.map((r) => r.log), bbxs.map((b) => b.log));
+  const merged = new Map<string, ImportedLog>();
+  const used = new Set<string>();
+  for (const [ri, { bbx: bi, align }] of pairs) {
+    const r = radios[ri];
+    const b = bbxs[bi];
+    merged.set(r.id, { ...r, log: mergeLogs(r.log, b.log, align.offset), bbx: b.bbx, bbxOffset: align.offset, align });
+    used.add(b.id);
+  }
+  return logs.filter((l) => !used.has(l.id)).map((l) => merged.get(l.id) ?? l);
 }
 
 async function importFiles(files: File[]) {
@@ -155,6 +187,23 @@ async function importFiles(files: File[]) {
     }
   }
 
+  // Blackbox seul pendant qu'un vol radio est affiché : on le combine s'il s'agit du même vol
+  if (videos.length === 0 && logs.length > 0 && logs.every((l) => l.bbx) && state.radio && !state.bbx && state.currentId !== null) {
+    const radio = state.radio;
+    const p = pairBlackbox([radio], logs.map((l) => l.log)).get(0);
+    const match = p ? logs[p.bbx] : undefined;
+    if (p?.sure && match) {
+      const a = p.align;
+      await updateFlight(state.currentId, { bbx: match.bbx, bbxOffset: a.offset });
+      toast(`Blackbox combiné au log radio (${alignLabel(a)}).`);
+      await openFlight(state.currentId);
+      const rest = logs.filter((l) => l !== match);
+      if (rest.length === 0) return;
+      logs.splice(0, logs.length, ...rest);
+    }
+  }
+  logs.splice(0, logs.length, ...combineLogs(logs));
+
   // Vidéo seule : on l'ajoute au vol affiché
   if (logs.length === 0) {
     if (videos.length && state.log) {
@@ -176,7 +225,7 @@ async function importFiles(files: File[]) {
   const pairs = logs.length === 1 ? new Map(videos.slice(0, 1).map((v) => [v.id, logs[0].id])) : pairVideos(spans.filter((s) => s.start > 0), videos);
 
   let lastId = -1;
-  for (const { id, log, key, csv, bbx } of logs) {
+  for (const { id, log, key, csv, bbx, bbxOffset } of logs) {
     const pv = videos.find((v) => pairs.get(v.id) === id) ?? null;
     const flight = buildFlight(log, pv?.video ?? null);
     const videoOffset = videoOffsetFor(flight, pv);
@@ -187,6 +236,7 @@ async function importFiles(files: File[]) {
       date: log.start?.getTime() ?? toNaiveLocal(Date.now()),
       csv,
       bbx,
+      bbxOffset,
       video: pv ? toStoredVideo(pv.video, pv.start) : undefined,
       videoOffset,
       summary: { duration: st.duration, maxDist: st.maxDist, totalDist: st.totalDist, maxAlt: st.maxAlt, minRqly: st.minRqly, minCellV: st.minCellV, failsafes: st.failsafes },
@@ -195,9 +245,12 @@ async function importFiles(files: File[]) {
   requestPersistence();
   const unpaired = videos.length - pairs.size;
   if (unpaired > 0) toast(`${unpaired} vidéo(s) sans log de vol correspondant.`);
+  const combined = logs.filter((l) => l.align);
+  if (logs.length === 1 && combined.length === 1) toast(`Log radio et Blackbox combinés (${alignLabel(combined[0].align!)}).`);
+  const combinedNote = combined.length ? ` dont ${combined.length} combinant log radio et Blackbox` : '';
   if (logs.length === 1) await openFlight(lastId);
   else {
-    toast(`${logs.length} vols importés.`);
+    toast(`${logs.length} vols importés${combinedNote}.`);
     await showLibrary();
   }
 }
@@ -207,9 +260,14 @@ async function openFlight(id: number) {
   if (!f) return;
   try {
     state.currentId = id;
-    if (f.csv !== undefined) state.log = parseEdgeTxCsv(f.csv, f.name);
-    else if (f.bbx) state.log = fromStoredLog(f.bbx);
-    else throw new Error('vol sans log.');
+    state.radio = f.csv !== undefined ? parseEdgeTxCsv(f.csv, f.name) : null;
+    state.bbx = f.bbx ? fromStoredLog(f.bbx) : null;
+    state.bbxAlign = null;
+    if (state.radio && state.bbx) {
+      state.bbxAlign = { offset: f.bbxOffset ?? 0, method: 'none' };
+      state.log = mergeLogs(state.radio, state.bbx, state.bbxAlign.offset);
+    } else state.log = state.radio ?? state.bbx;
+    if (!state.log) throw new Error('vol sans log.');
     state.video = f.video ? fromStoredVideo(f.video) : null;
     await showFlight(f.videoOffset ?? 0);
   } catch (e) {
@@ -242,7 +300,7 @@ async function showLibrary() {
         return `<div class="flight-card card" data-id="${f.id}">
           <button class="flight-open" data-id="${f.id}">
             <div class="flight-date">${fmtDate(f.date)}</div>
-            <div class="flight-name">${escapeHtml(f.name)}${f.csv === undefined && f.bbx ? ' · 📦 Blackbox' : ''}${f.video ? ' · 🎥' : ''}</div>
+            <div class="flight-name">${escapeHtml(f.name)}${f.bbx ? (f.csv === undefined ? ' · 📦 Blackbox' : ' · + 📦 Blackbox') : ''}${f.video ? ' · 🎥' : ''}</div>
             <div class="flight-stats">
               <span>⏱ ${formatDuration(s.duration)}</span>
               <span>↔ ${formatDistance(s.maxDist)}</span>
@@ -304,6 +362,8 @@ async function showFlight(videoOffset: number) {
   const slider = $<HTMLInputElement>('time-slider');
   slider.max = String(flight.duration);
   $('video-sync').hidden = !state.video;
+  $('bbx-sync').hidden = !(state.radio && state.bbx);
+  if (state.bbxAlign) $<HTMLInputElement>('bbx-offset-input').value = String(state.bbxAlign.offset);
   $<HTMLInputElement>('offset-input').value = String(flight.videoOffset);
   attachPlayer();
   startOsdRead();
@@ -318,7 +378,8 @@ function firstFlyingTime(f: Flight): number {
 }
 
 function renderFiles() {
-  const parts = [`<button id="back-btn" class="chip back">← Mes vols</button>`, `<span class="chip"${state.log!.firmware ? ` title="${escapeHtml(state.log!.firmware)}"` : ''}>${state.log!.source === 'blackbox' ? '📦' : '📈'} ${escapeHtml(state.log!.name)}</span>`];
+  const parts = [`<button id="back-btn" class="chip back">← Mes vols</button>`, `<span class="chip"${state.log!.firmware ? ` title="${escapeHtml(state.log!.firmware)}"` : ''}>${{ blackbox: '📦', both: '📈+📦', radio: '📈' }[state.log!.source ?? 'radio']} ${escapeHtml(state.log!.name)}</span>`];
+  if (state.bbx && state.radio) parts.push(`<span class="chip" title="${escapeHtml(state.bbx.name)}">📦 Radio + Blackbox</span>`);
   if (state.flight?.log.start) parts.push(`<span class="chip">${state.flight.log.start.toLocaleString('fr-FR', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' })}</span>`);
   const v = state.video;
   if (!v) parts.push(`<label class="chip add">+ Ajouter la vidéo<input type="file" ${isNative ? '' : 'accept=".srt,.mp4,.mov"'} hidden id="srt-input" /></label>`);
@@ -736,6 +797,9 @@ $('demo-btn').addEventListener('click', () => {
   const d = generateDemo();
   state.currentId = null;
   state.log = parseEdgeTxCsv(d.csv, 'Démo – lac d\'Annecy.csv');
+  state.radio = state.log;
+  state.bbx = null;
+  state.bbxAlign = null;
   state.video = parseSrt(d.srt, 'Démo – DJI O3.srt');
   showFlight(guessVideoOffset(buildFlight(state.log, state.video)));
 });
@@ -783,6 +847,28 @@ document.querySelectorAll<HTMLButtonElement>('#video-sync [data-off]').forEach((
   b.addEventListener('click', () => setOffset((state.flight?.videoOffset ?? 0) + Number(b.dataset.off))),
 );
 $('offset-auto').addEventListener('click', () => state.flight && setOffset(guessVideoOffset(state.flight)));
+
+/** Recale le Blackbox sur le log radio (vol combiné). */
+async function setBbxOffset(a: Alignment) {
+  if (!state.radio || !state.bbx || !state.flight) return;
+  a = { ...a, offset: Math.round(a.offset * 10) / 10 };
+  state.bbxAlign = a;
+  state.log = mergeLogs(state.radio, state.bbx, a.offset);
+  if (state.currentId !== null) await updateFlight(state.currentId, { bbxOffset: a.offset });
+  const t = state.t;
+  await showFlight(state.flight.videoOffset);
+  setTime(t);
+}
+$<HTMLInputElement>('bbx-offset-input').addEventListener('change', (e) => setBbxOffset({ offset: Number((e.target as HTMLInputElement).value) || 0, method: 'none' }));
+document.querySelectorAll<HTMLButtonElement>('#bbx-sync [data-off]').forEach((b) =>
+  b.addEventListener('click', () => setBbxOffset({ offset: (state.bbxAlign?.offset ?? 0) + Number(b.dataset.off), method: 'none' })),
+);
+$('bbx-offset-auto').addEventListener('click', () => {
+  if (!state.radio || !state.bbx) return;
+  const a = alignBlackbox(state.radio, state.bbx);
+  toast(`Blackbox : ${alignLabel(a)}.`);
+  setBbxOffset(a);
+});
 
 document.addEventListener('keydown', (e) => {
   if (!state.flight || (e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'SELECT') return;
