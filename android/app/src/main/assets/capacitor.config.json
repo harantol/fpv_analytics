@@ -1,8 +1,0 @@
-{
-	"appId": "io.github.harantol.fpvanalytics",
-	"appName": "FPV Analytics",
-	"webDir": "dist",
-	"android": {
-		"allowMixedContent": false
-	}
-}
