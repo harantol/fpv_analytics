@@ -365,6 +365,86 @@ main {
   pointer-events: none;
 }
 
+.native .web-only,
+html:not(.native) .native-only {
+  display: none;
+}
+.btn.icon-help {
+  width: 34px;
+  padding: 0;
+  font-weight: 700;
+}
+
+.events {
+  padding: 10px 12px;
+}
+.events h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.event-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.event {
+  border: 1px solid var(--border);
+  border-left: 4px solid #60a5fa;
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+.event.warn {
+  border-left-color: var(--warn);
+}
+.event.bad {
+  border-left-color: var(--bad);
+}
+
+.help {
+  width: min(680px, calc(100% - 24px));
+  max-height: calc(100% - 48px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+}
+.help::backdrop {
+  background: rgba(2, 6, 23, 0.6);
+}
+.help header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.help h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.help-body {
+  padding: 4px 16px 16px;
+}
+.help-body h3 {
+  margin: 16px 0 6px;
+  font-size: 15px;
+}
+.help-body li {
+  margin-bottom: 4px;
+}
+
 .footer {
   padding: 16px;
   padding-bottom: max(16px, env(safe-area-inset-bottom));

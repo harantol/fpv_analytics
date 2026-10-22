@@ -15,19 +15,20 @@
           Ouvrir<span class="wide">&nbsp;des fichiers</span>
           <input id="file-input" type="file" accept=".csv,.srt,.txt" multiple hidden />
         </label>
-        <button id="demo-btn" class="btn">Vol de démo</button>
+        <button id="demo-btn" class="btn">Démo</button>
+        <button class="btn icon-help" data-open-help aria-label="Configurer mon drone" title="Configurer mon drone">?</button>
       </div>
     </header>
 
     <main>
       <section id="welcome" class="welcome card">
         <h1>Analysez vos vols FPV long range</h1>
-        <p>Glissez-déposez vos fichiers ici, ou utilisez « Ouvrir des fichiers ». Tout est traité dans votre navigateur : aucun fichier n'est envoyé sur un serveur.</p>
+        <p><span class="web-only">Glissez-déposez vos fichiers ici, ou utilisez</span><span class="native-only">Utilisez</span> « Ouvrir ». Tout est traité sur votre appareil : aucun fichier n'est envoyé sur un serveur.</p>
         <ul>
           <li><b>Log télémétrie radio (.csv)</b> : carte SD de la radio EdgeTX / OpenTX (dossier <code>LOGS</code>), avec ELRS, Crossfire, FrSky… → trace GPS, batterie, liaison radio.</li>
           <li><b>Sous-titres vidéo (.srt)</b>, optionnel : enregistrés par les lunettes DJI (O3, O4, FPV) ou Walksnail → qualité de la liaison vidéo.</li>
         </ul>
-        <p class="muted">Astuce : activez les logs dans EdgeTX via une « Fonction spéciale » → <i>Écrire logs SD</i> (0,2 s) sur l'interrupteur d'armement.</p>
+        <p><button class="btn" data-open-help>Comment configurer drone et radio pour avoir de bons logs ?</button></p>
       </section>
 
       <section id="app" class="app" hidden>
@@ -73,10 +74,58 @@
           <span class="muted">décalage du début de la vidéo par rapport au log</span>
         </div>
 
+        <section id="events" class="events card" hidden></section>
+
         <div id="stats" class="stats"></div>
         <div id="charts" class="charts"></div>
       </section>
     </main>
+
+    <dialog id="help" class="help">
+      <header>
+        <h2>Configurer mon drone</h2>
+        <button id="help-close" class="btn small" aria-label="Fermer">✕</button>
+      </header>
+      <div class="help-body">
+        <p>L'essentiel des données vient du <b>log de la radio</b> (EdgeTX). Il contient au même endroit le GPS, la batterie et la liaison ELRS dans les deux sens.</p>
+
+        <h3>1. Betaflight</h3>
+        <ul>
+          <li><b>GPS</b> : onglet <i>Ports</i> → UART du GPS en <i>GPS</i> ; onglet <i>Configuration</i> → fonction <i>GPS</i> activée.</li>
+          <li><b>Télémétrie</b> : fonction <i>TELEMETRY</i> activée. Betaflight renvoie alors via CRSF le GPS, la tension, le courant, les mAh, l'attitude et le mode de vol.</li>
+          <li><b>Capteur de courant calibré</b> (onglet <i>Alimentation &amp; batterie</i>), sinon le courant et les mAh sont faux.</li>
+          <li>Conseillé : <i>GPS Rescue</i> configuré (il apparaîtra dans les événements du vol).</li>
+        </ul>
+
+        <h3>2. ExpressLRS</h3>
+        <ul>
+          <li>Script Lua ELRS sur la radio → <b>Telem Ratio : Std</b>.</li>
+          <li>Si le GPS se met à jour moins d'une fois par seconde dans le log, passez à <i>1:8</i> ou <i>1:4</i>.</li>
+          <li><i>Dynamic Power</i> peut rester activé : les changements de puissance sont affichés dans les événements.</li>
+        </ul>
+
+        <h3>3. Radio EdgeTX</h3>
+        <ol>
+          <li>Page <i>Télémétrie</i> du modèle → <b>Découvrir nouveaux capteurs</b>, drone alimenté et GPS fixé (pour que tous les capteurs, y compris GPS, apparaissent).</li>
+          <li>Page <i>Fonctions spéciales</i> → <b>SD Logs</b>, intervalle <b>0,2 s</b>, déclenchée par l'<b>interrupteur d'armement</b>.</li>
+          <li>Réglez la <b>date et l'heure</b> de la radio : elles servent à retrouver les vols et à synchroniser la vidéo.</li>
+        </ol>
+
+        <h3>4. DJI O4 / Goggles 3</h3>
+        <ul>
+          <li>Les Goggles 3 n'écrivent pas de fichier <code>.srt</code>. La qualité vidéo sera estimée à partir de la vidéo enregistrée par les lunettes (débit, coupures) : prise en charge en cours de développement.</li>
+          <li>Activez l'enregistrement dans les lunettes et gardez-les à l'heure (via l'app DJI Fly).</li>
+          <li>L'enregistrement 4K de l'O4 Pro (carte du drone) ne contient pas d'information sur la liaison.</li>
+        </ul>
+
+        <h3>5. Récupérer les fichiers sur le téléphone</h3>
+        <ul>
+          <li>Branchez la radio au téléphone en <b>USB-C (OTG)</b> et choisissez <i>USB Storage (SD)</i> sur la radio.</li>
+          <li>Dans l'app : <b>Ouvrir</b> → dossier <code>LOGS</code> → fichiers <code>Modèle-AAAA-MM-JJ-HHMMSS.csv</code>.</li>
+          <li>Vidéos des lunettes : carte SD des Goggles 3, dossier <code>DCIM</code>.</li>
+        </ul>
+      </div>
+    </dialog>
 
     <footer class="footer">
       FPV Analytics <span id="app-version"></span> · Licence MIT ·
