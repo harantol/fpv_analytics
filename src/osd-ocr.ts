@@ -1,5 +1,5 @@
 import { createWorker, OEM, PSM, type Worker } from 'tesseract.js';
-import { findBitrateRegion, parseBitrate, rejectOutliers, type Box, type OcrWord } from './osd-parse';
+import { findBitrateRegion, parseBitrate, refineTimes, rejectOutliers, type Box, type OcrWord } from './osd-parse';
 
 /**
  * Lecture du débit vidéo affiché sur l'OSD des lunettes (DJI Goggles 3), image par image.
@@ -187,10 +187,17 @@ export async function readBitrateFromImage(img: HTMLImageElement | HTMLCanvasEle
 }
 
 /**
- * Lit le débit affiché sur l'OSD toutes les `step` secondes.
+ * Lit le débit affiché sur l'OSD, en deux passes :
+ *  1. une image toutes les `step` secondes sur toute la vidéo ;
+ *  2. une image toutes les 0,2 s là où il se passe quelque chose (débit qui change,
+ *     lecture manquante, ou indice `hints` venant du fichier : images perdues…),
+ *     pour ne pas rater une chute de débit brève.
  * Renvoie null si « Mbps » n'a été trouvé sur aucune image.
  */
-export async function readOsdBitrate(file: Blob, opts: { step?: number; onProgress?: (p: OsdProgress) => void; signal?: AbortSignal } = {}): Promise<OsdReading[] | null> {
+export async function readOsdBitrate(
+  file: Blob,
+  opts: { step?: number; hints?: number[]; onProgress?: (p: OsdProgress) => void; signal?: AbortSignal } = {},
+): Promise<OsdReading[] | null> {
   const step = opts.step ?? 1;
   const grab = new FrameGrabber(file);
   const worker = await newWorker();
@@ -212,14 +219,26 @@ export async function readOsdBitrate(file: Blob, opts: { step?: number; onProgre
     if (!at) return null;
 
     const readings: OsdReading[] = [];
-    for (const [i, t] of times.entries()) {
-      if (opts.signal?.aborted) break;
+    const readAt = async (t: number) => {
       await grab.seek(t);
       // Une image sans nombre lisible (coupure, image figée) est simplement ignorée
-      const v = await readNumber(worker, frame, at);
+      const v = await readNumber(worker, frame, at!);
       if (v !== null) readings.push({ t, v });
-      opts.onProgress?.({ done: i + 1, total: times.length });
+    };
+    // Passe 1 : 0 → 75 % de la progression
+    for (const [i, t] of times.entries()) {
+      if (opts.signal?.aborted) return null;
+      await readAt(t);
+      opts.onProgress?.({ done: Math.round((750 * (i + 1)) / times.length), total: 1000 });
     }
+    // Passe 2 : lecture fine autour des changements (au plus autant d'images qu'en passe 1)
+    const fine = refineTimes(readings, times, opts.hints ?? [], { step: 0.2, max: times.length });
+    for (const [i, t] of fine.entries()) {
+      if (opts.signal?.aborted) return null;
+      await readAt(t);
+      opts.onProgress?.({ done: 750 + Math.round((250 * (i + 1)) / fine.length), total: 1000 });
+    }
+    readings.sort((a, b) => a.t - b.t);
     return rejectOutliers(readings);
   } finally {
     await worker.terminate();

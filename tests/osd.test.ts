@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findBitrateRegion, mergeOsdBitrate, parseBitrate, rejectOutliers, type OcrWord } from '../src/osd-parse';
+import { dvrHints, findBitrateRegion, mergeOsdBitrate, parseBitrate, refineTimes, rejectOutliers, type OcrWord } from '../src/osd-parse';
 
 const word = (text: string, x0: number, y0: number, x1: number, y1: number, confidence = 90): OcrWord => ({ text, bbox: { x0, y0, x1, y1 }, confidence });
 
@@ -66,5 +66,66 @@ describe('lecture du débit sur l\'OSD', () => {
     );
     expect(merged.map((s) => s.bitrate)).toEqual([40, 40, undefined]);
     expect(merged[0].frameLoss).toBe(0);
+  });
+
+  it('garde la valeur la plus basse d\'une tranche (chute brève)', () => {
+    const merged = mergeOsdBitrate([{ t: 10 }], [
+      { t: 10, v: 40 },
+      { t: 10.2, v: 9 },
+      { t: 10.4, v: 38 },
+    ]);
+    expect(merged[0].bitrate).toBe(9);
+  });
+
+  it('relit finement là où le débit change ou une lecture manque', () => {
+    const coarse = [0, 1, 2, 3, 4];
+    const fine = refineTimes(
+      [
+        { t: 0, v: 40 },
+        { t: 1, v: 40 },
+        { t: 2, v: 12 },
+        { t: 4, v: 40 },
+      ],
+      coarse,
+      [],
+    );
+    // 1→2 (chute), 2→3 et 3→4 (lecture manquante en 3) ; rien entre 0 et 1
+    expect(fine).toEqual([1.2, 1.4, 1.6, 1.8, 2.2, 2.4, 2.6, 2.8, 3.2, 3.4, 3.6, 3.8]);
+  });
+
+  it('relit autour d\'un indice du fichier vidéo même si deux lectures sont égales', () => {
+    const fine = refineTimes(
+      [
+        { t: 0, v: 40 },
+        { t: 1, v: 40 },
+      ],
+      [0, 1],
+      [0.5],
+    );
+    expect(fine).toEqual([0.2, 0.4, 0.6, 0.8]);
+  });
+
+  it('limite le nombre de relectures en gardant les plus gros écarts', () => {
+    const fine = refineTimes(
+      [
+        { t: 0, v: 40 },
+        { t: 1, v: 30 },
+        { t: 2, v: 5 },
+      ],
+      [0, 1, 2],
+      [],
+      { max: 4 },
+    );
+    expect(fine).toEqual([1.2, 1.4, 1.6, 1.8]);
+  });
+
+  it('repère les problèmes visibles dans le fichier vidéo', () => {
+    const hints = dvrHints([
+      { t: 0, bitrate: 30, frameLoss: 0 },
+      { t: 0.5, bitrate: 31, frameLoss: 40 },
+      { t: 1, bitrate: 8, frameLoss: 0 },
+      { t: 1.5, bitrate: 29, frameLoss: 0 },
+    ]);
+    expect(hints).toEqual([0.5, 1]);
   });
 });

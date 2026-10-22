@@ -82,18 +82,71 @@ export function rejectOutliers(readings: { t: number; v: number }[]): { t: numbe
 }
 
 /**
- * Remplace le débit estimé des échantillons vidéo par le débit lu sur l'OSD
- * (lecture la plus proche à moins de maxGap secondes ; sinon pas de valeur).
+ * Remplace le débit estimé des échantillons vidéo (tranches de 0,5 s commençant à t)
+ * par le débit lu sur l'OSD : la valeur la plus basse lue dans la tranche (pour ne pas
+ * masquer une chute brève), sinon la lecture la plus proche à moins de maxGap secondes.
  */
-export function mergeOsdBitrate(samples: VideoSample[], readings: { t: number; v: number }[], maxGap = 1): VideoSample[] {
+export function mergeOsdBitrate(samples: VideoSample[], readings: { t: number; v: number }[], maxGap = 1, bin = 0.5): VideoSample[] {
   const sorted = [...readings].sort((a, b) => a.t - b.t);
-  let j = 0;
   return samples.map((s) => {
-    while (j + 1 < sorted.length && Math.abs(sorted[j + 1].t - s.t) <= Math.abs(sorted[j].t - s.t)) j++;
-    const r = sorted[j];
     const out: VideoSample = { ...s };
-    if (r && Math.abs(r.t - s.t) <= maxGap) out.bitrate = r.v;
+    const inBin = sorted.filter((r) => r.t >= s.t && r.t < s.t + bin);
+    if (inBin.length) {
+      out.bitrate = Math.min(...inBin.map((r) => r.v));
+      return out;
+    }
+    const mid = s.t + bin / 2;
+    let best: { t: number; v: number } | undefined;
+    for (const r of sorted) if (!best || Math.abs(r.t - mid) < Math.abs(best.t - mid)) best = r;
+    if (best && Math.abs(best.t - mid) <= maxGap) out.bitrate = best.v;
     else delete out.bitrate;
     return out;
   });
+}
+
+/**
+ * Seconde passe : instants à relire finement (toutes les `step` s) là où il se passe
+ * quelque chose — deux lectures successives nettement différentes, une lecture
+ * manquante, ou un indice venant du fichier vidéo (images perdues, débit du fichier
+ * qui s'effondre). Limité à `max` instants, les écarts les plus forts d'abord.
+ */
+export function refineTimes(
+  readings: { t: number; v: number }[],
+  coarseTimes: number[],
+  hints: number[],
+  opts: { step?: number; max?: number } = {},
+): number[] {
+  const step = opts.step ?? 0.2;
+  const max = opts.max ?? Infinity;
+  const byT = new Map(readings.map((r) => [r.t, r.v]));
+  const windows: { a: number; b: number; score: number }[] = [];
+  for (let i = 0; i + 1 < coarseTimes.length; i++) {
+    const a = coarseTimes[i];
+    const b = coarseTimes[i + 1];
+    const va = byT.get(a);
+    const vb = byT.get(b);
+    let score = 0;
+    if (va === undefined || vb === undefined) score = 20;
+    else {
+      const d = Math.abs(va - vb);
+      if (d > Math.max(3, 0.15 * Math.max(va, vb))) score = d;
+    }
+    if (hints.some((h) => h >= a && h < b)) score = Math.max(score, 30);
+    if (score > 0) windows.push({ a, b, score });
+  }
+  windows.sort((x, y) => y.score - x.score);
+  const out = new Set<number>();
+  for (const w of windows) {
+    const n = Math.round((w.b - w.a) / step);
+    if (out.size + n - 1 > max) break;
+    for (let k = 1; k < n; k++) out.add(Math.round((w.a + k * step) * 1000) / 1000);
+  }
+  return [...out].sort((x, y) => x - y);
+}
+
+/** Instants (s, dans la vidéo) où le fichier vidéo lui-même montre un problème. */
+export function dvrHints(samples: VideoSample[]): number[] {
+  const rates = samples.map((s) => s.bitrate).filter((v): v is number => v !== undefined).sort((a, b) => a - b);
+  const median = rates.length ? rates[Math.floor(rates.length / 2)] : 0;
+  return samples.filter((s) => (s.frameLoss ?? 0) > 5 || (median > 0 && s.bitrate !== undefined && s.bitrate < 0.5 * median)).map((s) => s.t);
 }

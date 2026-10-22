@@ -16,7 +16,7 @@ import { deleteFlight, flightKey, fromStoredVideo, getFlight, listFlights, reque
 import { pairVideos, toNaiveLocal } from './pairing';
 import { setupOfflineDialog } from './offline-ui';
 import { VideoPlayer } from './videoplayer';
-import { mergeOsdBitrate } from './osd-parse';
+import { dvrHints, mergeOsdBitrate } from './osd-parse';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -408,6 +408,7 @@ async function startOsdRead() {
     const { readOsdBitrate } = await import('./osd-ocr');
     const readings = await readOsdBitrate(file, {
       signal: job.abort.signal,
+      hints: dvrHints(video.samples),
       onProgress: ({ done, total }) => {
         const pct = Math.floor((100 * done) / total);
         if (pct !== job.pct) {
