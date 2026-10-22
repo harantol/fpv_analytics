@@ -1,0 +1,77 @@
+# Chaque merge sur main : tests, version, tag, APK signé et release GitHub.
+# Le magasin F-Droid perso (magasin-fdroid sur S13) récupère l'APK attaché à la release.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Version
+        id: version
+        run: echo "version=$(node scripts/version.mjs)" >> "$GITHUB_OUTPUT"
+
+      - name: Tag
+        env:
+          TAG: v${{ steps.version.outputs.version }}
+        run: |  # une relance du même commit a déjà son tag
+          git ls-remote --exit-code --tags origin "$TAG" || {
+            git tag "$TAG" && git push origin "$TAG"
+          }
+
+      - name: App Android
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          ANDROID_KEYSTORE: ${{ runner.temp }}/fpv-analytics.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          [ -n "$KEYSTORE_BASE64" ] || { echo "::error::Secret ANDROID_KEYSTORE_BASE64 manquant (voir docs/fdroid.md)"; exit 1; }
+          echo "$KEYSTORE_BASE64" | base64 -d > "$ANDROID_KEYSTORE"
+          npm ci
+          npm run android:sync
+          (cd android && ./gradlew --no-daemon assembleRelease)
+          rm "$ANDROID_KEYSTORE"
+          mkdir -p dist-apk
+          APK="dist-apk/fpv-analytics-$APP_VERSION.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "$APK"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          "$BT/apksigner" verify "$APK"
+
+      # Le magasin F-Droid perso récupère l'APK attaché à cette release.
+      # Les notes (titre de la PR mergée) deviennent les notes de version dans F-Droid.
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.version.outputs.version }}
+        run: |
+          gh release view "$TAG" > /dev/null 2>&1 && exit 0  # une relance : déjà publiée
+          notes=$(git log -1 --format=%b | grep -v -E '^(Co-Authored-By:|Claude-Session:|🤖)' || true)
+          gh release create "$TAG" dist-apk/*.apk --verify-tag --title "$TAG" --notes "${notes:-$TAG}"
