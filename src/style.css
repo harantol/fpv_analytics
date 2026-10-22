@@ -545,6 +545,13 @@ html:not(.native) .native-only {
   margin: 16px 0 6px;
   font-size: 15px;
 }
+#offline progress {
+  width: 100%;
+}
+.help-body hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+}
 .help-body li {
   margin-bottom: 4px;
 }

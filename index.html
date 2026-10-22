@@ -55,6 +55,7 @@
               <option value="topo">Topo</option>
             </select>
             <button id="fit-btn" class="btn small" title="Recentrer sur le vol">⤢</button>
+            <button id="offline-btn" class="btn small" title="Carte hors ligne">📥</button>
           </div>
           <div id="hud" class="hud"></div>
         </div>
@@ -131,6 +132,31 @@
           <li>Dans l'app : <b>Ouvrir</b> → dossier <code>LOGS</code> → fichiers <code>Modèle-AAAA-MM-JJ-HHMMSS.csv</code>.</li>
           <li>Vidéos des lunettes : carte SD des Goggles 3, dossier <code>DCIM</code>.</li>
         </ul>
+      </div>
+    </dialog>
+
+    <dialog id="offline" class="help">
+      <header>
+        <h2>Carte hors ligne</h2>
+        <button id="offline-close" class="btn small" aria-label="Fermer">✕</button>
+      </header>
+      <div class="help-body">
+        <p>Les tuiles de carte et de relief affichées sont <b>gardées automatiquement</b> : un terrain déjà consulté reste visible sans réseau.</p>
+        <p>Pour préparer un terrain à l'avance : <b>cadrez la zone sur la carte</b>, puis téléchargez-la (fond de carte actuel + relief).</p>
+        <p>
+          <label>Niveau de détail
+            <select id="offline-zoom">
+              <option value="14">Moyen (zoom 14)</option>
+              <option value="15" selected>Bon (zoom 15)</option>
+              <option value="16">Très bon (zoom 16)</option>
+            </select>
+          </label>
+        </p>
+        <p id="offline-info" class="muted"></p>
+        <progress id="offline-progress" hidden></progress>
+        <p><button id="offline-start" class="btn primary">Télécharger la zone visible</button></p>
+        <hr />
+        <p><span id="offline-cache" class="muted"></span> <button id="offline-clear" class="linklike">Vider le cache</button></p>
       </div>
     </dialog>
 
