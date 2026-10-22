@@ -55,6 +55,10 @@ export interface VideoSample {
   droneBat?: number;
   /** Tension batterie lunettes (V). */
   gogglesBat?: number;
+  /** Images perdues (%), estimées depuis l'enregistrement des lunettes. */
+  frameLoss?: number;
+  /** Images reçues par seconde. */
+  fps?: number;
 }
 
 export interface VideoLog {

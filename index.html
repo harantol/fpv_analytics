@@ -13,7 +13,7 @@
       <div class="actions">
         <label class="btn primary">
           Ouvrir<span class="wide">&nbsp;des fichiers</span>
-          <input id="file-input" type="file" accept=".csv,.srt,.txt" multiple hidden />
+          <input id="file-input" type="file" accept=".csv,.srt,.txt,.mp4,.mov" multiple hidden />
         </label>
         <button id="demo-btn" class="btn">Démo</button>
         <button class="btn icon-help" data-open-help aria-label="Configurer mon drone" title="Configurer mon drone">?</button>
@@ -27,7 +27,7 @@
           <p><span class="web-only">Glissez-déposez vos fichiers ici, ou utilisez</span><span class="native-only">Utilisez</span> « Ouvrir ». Vous pouvez sélectionner plusieurs logs et vidéos d'un coup : chaque vidéo est associée à son vol d'après l'heure. Les vols sont gardés dans l'app. Tout est traité sur votre appareil : aucun fichier n'est envoyé sur un serveur.</p>
           <ul>
             <li><b>Log télémétrie radio (.csv)</b> : carte SD de la radio EdgeTX / OpenTX (dossier <code>LOGS</code>), avec ELRS, Crossfire, FrSky… → trace GPS, batterie, liaison radio.</li>
-            <li><b>Vidéo (optionnel)</b> : sous-titres <code>.srt</code> des anciennes lunettes DJI ou Walksnail → qualité de la liaison vidéo. Goggles 3 : prise en charge de la vidéo en cours de développement.</li>
+            <li><b>Vidéo des lunettes (optionnel)</b> : enregistrement <code>.mp4</code> des DJI Goggles 3 (débit reçu, images perdues), ou sous-titres <code>.srt</code> des anciennes lunettes DJI / Walksnail → qualité de la liaison vidéo. Seul l'index de la vidéo est lu : l'analyse est rapide et la vidéo n'est pas copiée.</li>
           </ul>
           <p><button class="btn" data-open-help>Comment configurer drone et radio pour avoir de bons logs ?</button></p>
         </div>
@@ -120,8 +120,8 @@
 
         <h3>4. DJI O4 / Goggles 3</h3>
         <ul>
-          <li>Les Goggles 3 n'écrivent pas de fichier <code>.srt</code>. La qualité vidéo sera estimée à partir de la vidéo enregistrée par les lunettes (débit, coupures) : prise en charge en cours de développement.</li>
-          <li>Activez l'enregistrement dans les lunettes et gardez-les à l'heure (via l'app DJI Fly).</li>
+          <li>Les Goggles 3 n'écrivent pas de fichier <code>.srt</code>. La qualité vidéo est estimée à partir de la <b>vidéo enregistrée par les lunettes</b> : débit réellement reçu et images perdues (coupures, saccades).</li>
+          <li>Activez l'<b>enregistrement</b> dans les lunettes (idéalement au démarrage automatique) et gardez-les <b>à l'heure</b> via l'app DJI Fly : l'heure du fichier sert à le caler sur le log radio. Un réglage manuel ± 1 s reste possible.</li>
           <li>L'enregistrement 4K de l'O4 Pro (carte du drone) ne contient pas d'information sur la liaison.</li>
         </ul>
 

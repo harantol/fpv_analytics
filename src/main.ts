@@ -1,6 +1,7 @@
 import './style.css';
 import { parseEdgeTxCsv } from './parsers/edgetx';
 import { parseSrt } from './parsers/srt';
+import { parseDvr } from './parsers/dvr';
 import { applyGround, attachVideo, buildFlight, computeStats, guessVideoOffset, indexAt, type Flight, type Point, type Stats } from './analysis';
 import { availableMetrics, domainOf, gradientCss, metricById, type Metric } from './metrics';
 import { FlightMap, type Basemap } from './map3d';
@@ -50,8 +51,20 @@ interface ParsedVideo {
   end: number;
 }
 
-function parseVideoFile(file: File, text: string): ParsedVideo {
-  const video = parseSrt(text, file.name);
+const isVideoFile = (f: File) => /\.(mp4|mov)$/i.test(f.name) || f.type.startsWith('video/');
+
+/**
+ * Lit un fichier vidéo : .srt (anciennes lunettes DJI, Walksnail) ou
+ * enregistrement .mp4 des lunettes (Goggles 3), dont on n'analyse que l'index.
+ */
+async function parseVideoFile(file: File): Promise<ParsedVideo> {
+  if (isVideoFile(file)) {
+    const r = await parseDvr(file);
+    // Heure de début : nom de fichier DJI ou date du MP4, sinon date de modification du fichier
+    const start = r.start ?? toNaiveLocal(file.lastModified) - r.duration * 1000;
+    return { video: r.video, start, end: start + r.duration * 1000 };
+  }
+  const video = parseSrt(await file.text(), file.name);
   const end = toNaiveLocal(file.lastModified);
   const dur = video.samples[video.samples.length - 1].t * 1000;
   return { video, start: end - dur, end };
@@ -68,10 +81,15 @@ function videoOffsetFor(flight: Flight, pv: ParsedVideo | null): number {
 async function importFiles(files: File[]) {
   const logs: { id: string; log: FlightLog; csv: string }[] = [];
   const videos: (ParsedVideo & { id: string })[] = [];
+  if (files.some(isVideoFile)) toast('Analyse de la vidéo…');
   for (const [i, file] of files.entries()) {
     try {
+      if (isVideoFile(file) || /\.srt$/i.test(file.name)) {
+        videos.push({ id: `v${i}`, ...(await parseVideoFile(file)) });
+        continue;
+      }
       const text = await file.text();
-      if (/\.srt$/i.test(file.name) || /-->/.test(text.slice(0, 500))) videos.push({ id: `v${i}`, ...parseVideoFile(file, text) });
+      if (/-->/.test(text.slice(0, 500))) videos.push({ id: `v${i}`, ...(await parseVideoFile(file)) });
       else logs.push({ id: `l${i}`, log: parseEdgeTxCsv(text, file.name), csv: text });
     } catch (e) {
       toast(`${file.name} : ${(e as Error).message}`, true);
@@ -237,7 +255,7 @@ function firstFlyingTime(f: Flight): number {
 function renderFiles() {
   const parts = [`<button id="back-btn" class="chip back">← Mes vols</button>`, `<span class="chip">📈 ${escapeHtml(state.log!.name)}</span>`];
   if (state.flight?.log.start) parts.push(`<span class="chip">${state.flight.log.start.toLocaleString('fr-FR', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' })}</span>`);
-  parts.push(state.video ? `<span class="chip">🎥 ${escapeHtml(state.video.name)}</span>` : `<label class="chip add">+ Ajouter la vidéo<input type="file" ${isNative ? '' : 'accept=".srt"'} hidden id="srt-input" /></label>`);
+  parts.push(state.video ? `<span class="chip">🎥 ${escapeHtml(state.video.name)}</span>` : `<label class="chip add">+ Ajouter la vidéo<input type="file" ${isNative ? '' : 'accept=".srt,.mp4,.mov"'} hidden id="srt-input" /></label>`);
   $('files').innerHTML = parts.join('');
   $('back-btn').addEventListener('click', () => showLibrary());
   const srtInput = document.getElementById('srt-input') as HTMLInputElement | null;
@@ -271,7 +289,7 @@ function renderEvents(events: FlightEvent[]) {
   const el = $('events');
   el.hidden = events.length === 0;
   const icon: Record<FlightEvent['kind'], string> = {
-    arm: '🟢', disarm: '⚪', failsafe: '⛔', linkLost: '📡', linkLow: '📶', rescue: '🛟', mode: '🎛️', rfmd: '📻', tpwr: '⚡', gap: '⏸️',
+    arm: '🟢', disarm: '⚪', failsafe: '⛔', linkLost: '📡', linkLow: '📶', rescue: '🛟', mode: '🎛️', rfmd: '📻', tpwr: '⚡', gap: '⏸️', videoLoss: '🎥',
   };
   el.innerHTML =
     `<h3>Événements <span class="muted">(${events.length})</span></h3><div class="event-list">` +

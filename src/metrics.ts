@@ -38,6 +38,7 @@ export const METRICS: Metric[] = [
   { id: 'tqly', label: 'Downlink (TQly)', unit: '%', get: (p) => p.tqly, domain: [0, 100], ramp: 'quality', digits: 0 },
   { id: 'vSignal', label: 'Signal vidéo', unit: '/4', get: (p) => p.video?.signal, domain: [0, 4], ramp: 'quality', digits: 0 },
   { id: 'vBitrate', label: 'Débit vidéo', unit: 'Mbps', get: (p) => p.video?.bitrate, domain: [0, 50], ramp: 'quality', digits: 1 },
+  { id: 'vFrameLoss', label: 'Images vidéo perdues', unit: '%', get: (p) => p.video?.frameLoss, domain: [0, 50], ramp: 'inverse', digits: 0 },
   { id: 'vDelay', label: 'Latence vidéo', unit: 'ms', get: (p) => p.video?.delay, domain: [20, 60], ramp: 'inverse', digits: 0 },
 ];
 
