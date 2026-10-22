@@ -35,6 +35,8 @@ export interface StoredFlight {
   csv?: string;
   /** Log Blackbox du contrôleur de vol. */
   bbx?: StoredLog;
+  /** Avec les deux logs : instant du log radio où commence le Blackbox (s). */
+  bbxOffset?: number;
   video?: StoredVideo;
   videoOffset?: number;
   summary: Pick<Stats, 'duration' | 'maxDist' | 'totalDist' | 'maxAlt' | 'minRqly' | 'minCellV' | 'failsafes'>;
@@ -87,7 +89,14 @@ export function fromStoredVideo(v: StoredVideo): VideoLog {
 export async function saveFlight(f: Omit<StoredFlight, 'id' | 'importedAt'>): Promise<number> {
   const existing = await db.flights.where('key').equals(f.key).first();
   if (existing) {
-    await db.flights.update(existing.id!, { ...f, video: f.video ?? existing.video, videoOffset: f.video ? f.videoOffset : existing.videoOffset });
+    await db.flights.update(existing.id!, {
+      ...f,
+      video: f.video ?? existing.video,
+      videoOffset: f.video ? f.videoOffset : existing.videoOffset,
+      // Réimporter le seul log radio ne doit pas faire perdre le Blackbox associé
+      bbx: f.bbx ?? existing.bbx,
+      bbxOffset: f.bbx ? f.bbxOffset : existing.bbxOffset,
+    });
     return existing.id!;
   }
   return (await db.flights.add({ ...f, importedAt: Date.now() })) as number;

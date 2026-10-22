@@ -103,6 +103,17 @@
           <span class="muted">décalage du début de la vidéo par rapport au log</span>
         </div>
 
+        <div id="bbx-sync" class="video-sync card" hidden>
+          <span>Synchro Blackbox</span>
+          <button class="btn small" data-off="-1">−1 s</button>
+          <button class="btn small" data-off="-0.1">−0,1</button>
+          <input id="bbx-offset-input" type="number" step="0.1" value="0" />
+          <button class="btn small" data-off="0.1">+0,1</button>
+          <button class="btn small" data-off="1">+1 s</button>
+          <button id="bbx-offset-auto" class="btn small">Auto</button>
+          <span class="muted">instant du log radio où commence le Blackbox</span>
+        </div>
+
         <section id="events" class="events card" hidden></section>
 
         <div id="stats" class="stats"></div>
@@ -145,6 +156,7 @@
           <li>Le Blackbox enregistre dans le contrôleur de vol le GPS, la tension, le courant, les gaz et les modes de vol, <b>sans passer par la télémétrie</b> : la trace GPS est bien plus fine que dans le log radio.</li>
           <li>Onglet <i>Blackbox</i> : enregistrement sur la mémoire flash ou la carte SD, avec les <b>champs GPS</b> activés (par défaut). En long range, choisissez une <b>fréquence de 250 à 500 Hz</b> : à 2 kHz, une mémoire flash de 16 Mo est pleine en quelques minutes.</li>
           <li>Pour que l'heure du vol soit connue, le contrôleur de vol la prend du GPS : vérifiez que la date du log est correcte dans le Blackbox Explorer.</li>
+          <li><b>Avec le log radio</b> : importez le <code>.bbl</code> en même temps que le <code>.csv</code> du même vol (ou ajoutez-le au vol radio ouvert). Les deux sont <b>combinés</b> : la liaison ELRS vient du log radio, le GPS, la batterie et les modes du Blackbox. Ils sont calés automatiquement en superposant les deux traces GPS (sinon sur l'armement, sinon sur l'heure) ; « Synchro Blackbox » permet d'ajuster.</li>
           <li>Récupération : Betaflight Configurator → onglet <i>Blackbox</i> → <i>Activer le mode stockage de masse</i>, puis copiez le fichier <code>.bbl</code> / <code>.bfl</code> sur le téléphone. Un fichier contient un log par armement : chacun devient un vol.</li>
         </ul>
 
