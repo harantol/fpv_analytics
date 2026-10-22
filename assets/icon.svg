@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16233d"/>
+      <stop offset="1" stop-color="#0b1220"/>
+    </linearGradient>
+    <linearGradient id="path" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#22c55e"/>
+      <stop offset="0.55" stop-color="#eab308"/>
+      <stop offset="1" stop-color="#ec4899"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <!-- relief -->
+  <path d="M0 800 L210 590 L330 690 L520 470 L700 650 L810 560 L1024 760 L1024 1024 L0 1024 Z" fill="#1f3b5c"/>
+  <path d="M0 880 L250 700 L420 800 L600 640 L820 820 L1024 720 L1024 1024 L0 1024 Z" fill="#27507a"/>
+  <!-- trace du vol -->
+  <path d="M250 770 C 320 560, 430 520, 520 420 S 700 260, 780 250" fill="none" stroke="url(#path)" stroke-width="44" stroke-linecap="round"/>
+  <!-- rideau vertical -->
+  <g stroke="#ffffff" stroke-opacity="0.25" stroke-width="8">
+    <line x1="400" y1="560" x2="400" y2="760"/>
+    <line x1="520" y1="420" x2="520" y2="560"/>
+    <line x1="650" y1="320" x2="650" y2="620"/>
+  </g>
+  <!-- drone -->
+  <circle cx="780" cy="250" r="62" fill="#ec4899" stroke="#fff" stroke-width="22"/>
+  <circle cx="250" cy="770" r="34" fill="#fff" stroke="#10b981" stroke-width="16"/>
+</svg>

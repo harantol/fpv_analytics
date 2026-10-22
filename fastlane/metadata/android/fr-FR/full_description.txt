@@ -1,0 +1,10 @@
+<p>FPV Analytics analyse les vols de drones FPV long range à partir des logs de la radio et des enregistrements des lunettes.</p>
+<ul>
+<li><b>Trace GPS en 3D</b> au-dessus du relief, colorée selon la qualité de liaison, la tension, l'altitude ou la vitesse.</li>
+<li><b>Batterie</b> : tension par élément, courant, mAh consommés.</li>
+<li><b>Liaison radio ExpressLRS / Crossfire</b> : link quality, RSSI, SNR, puissance d'émission, pertes de liaison.</li>
+<li><b>Liaison vidéo</b> : débit et coupures.</li>
+<li>Lecture du vol avec timeline, HUD et graphiques synchronisés.</li>
+</ul>
+<p>Fichiers lus : logs télémétrie EdgeTX / OpenTX (.csv) de la carte SD de la radio, sous-titres .srt DJI / Walksnail.</p>
+<p>Tout est traité sur le téléphone, aucun fichier n'est envoyé sur un serveur. Les fonds de carte et le relief sont téléchargés depuis Internet (imagerie Esri, OpenTopoMap, AWS Terrain Tiles).</p>

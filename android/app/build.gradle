@@ -1,0 +1,78 @@
+apply plugin: 'com.android.application'
+
+// Version MAJEUR.MINEUR (scripts/version.mjs, comme auto_pid_tuning) ; APP_VERSION l'emporte.
+// versionCode = MAJEUR*1000 + MINEUR  (ex. 1.6 -> 1006) : augmente à chaque version.
+def appVersionName = System.getenv('APP_VERSION') ?: providers.exec {
+    commandLine 'node', file('../../scripts/version.mjs').absolutePath
+}.standardOutput.asText.get().trim()
+def versionParts = appVersionName.tokenize('.')
+def appVersionCode = versionParts.size() == 2 && versionParts.every { it.isInteger() } ?
+        versionParts[0].toInteger() * 1000 + versionParts[1].toInteger() : 1
+
+// Signature release : variables d'environnement (secrets CI) ou keystore.properties local.
+// Un seul mot de passe pour le keystore et la clé, alias « fpv-analytics ».
+def keystoreProps = new Properties()
+def keystorePropsFile = rootProject.file('keystore.properties')
+if (keystorePropsFile.exists()) keystorePropsFile.withInputStream { keystoreProps.load(it) }
+def releaseStoreFile = System.getenv('ANDROID_KEYSTORE') ?: keystoreProps.getProperty('storeFile')
+def releasePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD') ?: keystoreProps.getProperty('password')
+
+android {
+    namespace = "io.github.harantol.fpvanalytics"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "io.github.harantol.fpvanalytics"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode appVersionCode
+        versionName appVersionName
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (releaseStoreFile) {
+                storeFile file(releaseStoreFile)
+                storePassword releasePassword
+                keyAlias 'fpv-analytics'
+                keyPassword releasePassword
+            }
+        }
+    }
+    // F-Droid : pas de bloc de dépendances chiffré (réservé à Google Play) dans l'APK
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+    buildTypes {
+        release {
+            if (releaseStoreFile) signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'

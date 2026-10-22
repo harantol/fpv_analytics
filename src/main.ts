@@ -9,6 +9,7 @@ import { fmt, formatDistance, formatDuration } from './format';
 import { groundElevations } from './elevation';
 import { generateDemo } from './demo';
 import type { FlightLog, VideoLog } from './types';
+import { isNative, setupNative } from './native';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -102,7 +103,7 @@ function firstFlyingTime(f: Flight): number {
 function renderFiles() {
   const parts = [`<span class="chip">📈 ${state.log!.name}</span>`];
   if (state.flight?.log.start) parts.push(`<span class="chip">${state.flight.log.start.toLocaleString('fr-FR', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' })}</span>`);
-  parts.push(state.video ? `<span class="chip">🎥 ${state.video.name}</span>` : `<label class="chip add">+ Ajouter le .srt vidéo<input type="file" accept=".srt" hidden id="srt-input" /></label>`);
+  parts.push(state.video ? `<span class="chip">🎥 ${state.video.name}</span>` : `<label class="chip add">+ Ajouter le .srt vidéo<input type="file" ${isNative ? '' : 'accept=".srt"'} hidden id="srt-input" /></label>`);
   $('files').innerHTML = parts.join('');
   const srtInput = document.getElementById('srt-input') as HTMLInputElement | null;
   srtInput?.addEventListener('change', () => srtInput.files && loadFiles([...srtInput.files]));
@@ -310,5 +311,6 @@ window.addEventListener('drop', (e) => {
 });
 
 $('app-version').textContent = `v${__APP_VERSION__}`;
+setupNative({ isPlaying: () => state.playing, stop: () => setPlaying(false) });
 
 if (new URLSearchParams(location.search).has('demo')) $('demo-btn').click();

@@ -1,6 +1,6 @@
 # FPV Analytics
 
-Application web pour analyser des vols de drone FPV long range :
+Application Android (et web) pour analyser des vols de drone FPV long range :
 
 - **Trace GPS en 3D** sur le relief (imagerie satellite ou carte topo), colorée selon la mesure de votre choix : link quality, RSSI, tension, signal vidéo, altitude, vitesse…
 - **Batterie** : tension (par élément, nombre d'éléments estimé automatiquement), courant, mAh consommés, %.
@@ -30,6 +30,19 @@ npm install
 npm run dev      # http://localhost:5173  (ajoutez ?demo pour charger le vol de démo)
 npm test         # tests des parseurs et des calculs
 npm run build    # version statique dans dist/
+```
+
+## App Android
+
+L'app web est emballée avec [Capacitor](https://capacitorjs.com) (dossier `android/`), sans aucune dépendance Google : elle est compatible F-Droid.
+
+- Chaque PR produit un **APK de test** (artefact `fpv-analytics-debug-apk` de la CI).
+- Chaque merge sur `main` produit un **APK signé**, attaché à la release GitHub `vX.Y`, où le magasin F-Droid perso le récupère (voir [docs/fdroid.md](docs/fdroid.md)).
+
+```bash
+npm run android:sync   # build web + copie dans android/
+npm run android:open   # ouvre le projet dans Android Studio
+npm run assets         # régénère icônes et splash depuis assets/
 ```
 
 ## Versions et publication
