@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FPV Analytics</string>
+    <string name="title_activity_main">FPV Analytics</string>
+    <string name="package_name">io.github.harantol.fpvanalytics</string>
+    <string name="custom_url_scheme">io.github.harantol.fpvanalytics</string>
+</resources>

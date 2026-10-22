@@ -18,3 +18,27 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: npm ci
+      - run: npm run android:sync
+      - name: APK debug (installable pour tester la PR)
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fpv-analytics-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 14
