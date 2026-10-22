@@ -14,14 +14,18 @@ export interface FlightEvent {
 /**
  * Mode de vol Betaflight transmis par CRSF : "ACRO", "ANGL", "HOR", "AIR",
  * "!FS!" (failsafe), "RTH" (GPS Rescue), "!ERR", "WAIT"…
- * Un "*" final signifie que le drone est désarmé.
+ * Quand le drone est désarmé, Betaflight ajoute un caractère à la fin :
+ * "*" (prêt à armer), "!" (armement bloqué) ou "?" (GPS Rescue indisponible).
  */
-export function parseFlightMode(fm: string | undefined): { armed?: boolean; mode?: string; failsafe: boolean; rescue: boolean } {
+export function parseFlightMode(fm: string | undefined): { armed?: boolean; mode?: string; failsafe: boolean; rescue: boolean; armingDisabled?: boolean } {
   if (!fm) return { failsafe: false, rescue: false };
   const raw = fm.trim();
-  const armed = !raw.endsWith('*') && !/^(!ERR|WAIT|OK)$/i.test(raw);
-  const mode = raw.replace(/\*$/, '');
-  return { armed, mode, failsafe: /!FS!|FAILSAFE/i.test(mode), rescue: /^(RTH|GPS ?RESCUE|RESC)$/i.test(mode) };
+  // Failsafe : pas de suffixe, l'état armé n'est pas connu
+  if (/^!FS!$/i.test(raw)) return { mode: '!FS!', failsafe: true, rescue: false };
+  const suffix = raw.match(/^(.+?)([*!?])$/);
+  const mode = suffix ? suffix[1] : raw;
+  const armed = !suffix && !/^(!ERR|WAIT|OK)$/i.test(raw);
+  return { armed, mode, failsafe: /FAILSAFE/i.test(mode), rescue: /^(RTH|GPS ?RESCUE|RESC)$/i.test(mode), armingDisabled: suffix?.[2] === '!' };
 }
 
 const LOW_LQ = 50;
