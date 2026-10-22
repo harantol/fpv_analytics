@@ -1,84 +1,66 @@
-# Publier sur votre dépôt F-Droid
+# Publication sur le magasin F-Droid perso
 
-La CI compile un **APK signé** à chaque release et l'ajoute à la release GitHub
-(`fpv-analytics-vX.Y.Z.apk` + son empreinte `.sha256`). Votre serveur
-fdroidserver n'a plus qu'à le récupérer.
+Même fonctionnement que `auto_pid_tuning` : **chaque merge sur `main`** compile l'APK signé
+avec la clé de release et l'attache à la release GitHub `vX.Y`. Le magasin F-Droid perso
+(`magasin-fdroid` sur S13, http://192.168.1.15:8480) le récupère dans cette release.
 
-## 1. Créer la clé de signature (une seule fois)
-
-> Gardez précieusement cette clé et ses mots de passe : toutes les mises à jour
-> doivent être signées avec la même clé, sinon Android refusera de les installer
-> par-dessus l'ancienne version.
-
-```bash
-keytool -genkeypair -v -keystore fpv-analytics.jks -alias fpv-analytics \
-  -keyalg RSA -keysize 4096 -validity 10000
-base64 -w0 fpv-analytics.jks > fpv-analytics.jks.b64
-```
-
-## 2. Ajouter les secrets GitHub
-
-*Settings → Secrets and variables → Actions → New repository secret* :
-
-| Secret | Valeur |
-| --- | --- |
-| `ANDROID_KEYSTORE_BASE64` | contenu de `fpv-analytics.jks.b64` |
-| `ANDROID_KEYSTORE_PASSWORD` | mot de passe du keystore |
-| `ANDROID_KEY_ALIAS` | `fpv-analytics` |
-| `ANDROID_KEY_PASSWORD` | mot de passe de la clé (souvent le même) |
-
-Autorisez aussi release-please à ouvrir sa PR : *Settings → Actions → General →
-Workflow permissions* → **Allow GitHub Actions to create and approve pull requests**.
-
-## 3. Faire une release
-
-1. Mergez les PR dans `main` (messages de commit `feat:` / `fix:`).
-2. release-please ouvre une PR « chore(main): release X.Y.Z » : mergez-la.
-3. La CI crée le tag `vX.Y.Z`, compile l'APK signé et l'ajoute à la release.
-
-## 4. Mettre à jour votre dépôt F-Droid
-
-Une première fois, copiez `docs/fdroid-metadata.yml` dans
-`metadata/io.github.harantol.fpvanalytics.yml` de votre dépôt fdroidserver.
-
-Puis à chaque version :
-
-```bash
-cd ~/fdroid            # votre dépôt fdroidserver
-TAG=v0.2.0             # version à publier
-curl -LO "https://github.com/harantol/fpv_analytics/releases/download/$TAG/fpv-analytics-$TAG.apk"
-curl -LO "https://github.com/harantol/fpv_analytics/releases/download/$TAG/fpv-analytics-$TAG.apk.sha256"
-sha256sum -c "fpv-analytics-$TAG.apk.sha256" && mv "fpv-analytics-$TAG.apk" repo/
-rm -f "fpv-analytics-$TAG.apk.sha256"
-fdroid update
-fdroid deploy          # si vous publiez vers un serveur distant
-```
-
-Les descriptions et l'icône sont aussi disponibles au format Fastlane dans
-`fastlane/metadata/android/fr-FR/` (lu automatiquement par fdroidserver si vous
-compilez depuis les sources avec `fdroid build`).
+- Nom de l'APK : `fpv-analytics-X.Y.apk`.
+- Fiche dans le magasin (nom, descriptions, icône) : `fastlane/metadata/android/fr-FR/`.
+- Notes de version : le titre de la PR mergée.
+- Identifiant de l'app : `io.github.harantol.fpvanalytics`.
 
 ## Versions
 
-- `versionName` = version de `package.json` (ex. `0.2.0`)
-- `versionCode` = MAJ×10000 + MIN×100 + PATCH (ex. `0.2.0` → `200`, `1.3.2` → `10302`)
+- `versionName` = `MAJEUR.MINEUR` (`scripts/version.mjs`) : MAJEUR dans le fichier `VERSION`,
+  MINEUR = nombre de merges sur `main` depuis le dernier changement de `VERSION`.
+- `versionCode` = MAJEUR × 1000 + MINEUR (ex. `1.6` → `1006`) : il augmente à chaque version.
+
+Chaque PR compile aussi un APK de test (artefact `fpv-analytics-debug-apk`, signé avec la clé
+de debug : à installer à côté, pas par-dessus la version du magasin).
+
+## La clé de signature (une seule fois)
+
+Android n'installe une mise à jour que si elle est signée avec la même clé que l'app installée.
+Comme pour auto_pid_tuning, un seul mot de passe sert au keystore et à la clé :
+
+```bash
+mkdir -p ~/fpv_analytics/android-signing && cd ~/fpv_analytics/android-signing   # sur S13
+keytool -genkeypair -keystore fpv-analytics.keystore -alias fpv-analytics \
+  -keyalg RSA -keysize 2048 -validity 36500 -dname "CN=FPV Analytics"
+# -> choisir un mot de passe ; à la question du mot de passe de la clé, faire Entrée (le même)
+base64 -w0 fpv-analytics.keystore
+```
+
+Secrets du dépôt GitHub (*Settings → Secrets and variables → Actions*) :
+
+| Secret | Valeur |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | la sortie de `base64 -w0 fpv-analytics.keystore` |
+| `ANDROID_KEYSTORE_PASSWORD` | le mot de passe |
+
+**Si la clé est perdue**, les nouvelles versions ne s'installent plus par-dessus l'ancienne :
+il faut désinstaller l'app d'abord (les vols enregistrés dans l'app sont alors perdus).
+
+## Côté magasin
+
+- Ajouter `harantol/fpv_analytics` à la liste des dépôts suivis par `magasin-fdroid`,
+  comme `harantol/auto_pid_tuning`.
+- Le dépôt `fpv_analytics` est **privé** : pour lire ses releases, le magasin doit utiliser un
+  jeton GitHub avec accès en lecture au dépôt — ou rendre le dépôt public comme auto_pid_tuning.
 
 ## Compiler en local (optionnel)
 
-Prérequis : Node 22, JDK 21, Android SDK (Android Studio).
+Prérequis : Node 22, JDK 21, Android SDK.
 
 ```bash
 npm ci
 npm run android:sync
-cd android && ./gradlew assembleDebug    # APK de test non signé pour la release
+cd android && ./gradlew assembleDebug
 ```
 
-Pour un APK release signé en local, créez `android/keystore.properties`
-(ignoré par git) :
+Pour un APK release signé en local, créer `android/keystore.properties` (ignoré par git) :
 
 ```properties
-storeFile=/chemin/vers/fpv-analytics.jks
-storePassword=...
-keyAlias=fpv-analytics
-keyPassword=...
+storeFile=/chemin/vers/fpv-analytics.keystore
+password=...
 ```

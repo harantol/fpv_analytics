@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b1220" />
+    <title>FPV Analytics</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛰️</text></svg>" />
+    <script type="module" crossorigin src="./assets/index-BP9HCL9f.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-l8AEVia_.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">FPV <span>Analytics</span></div>
+      <div class="actions">
+        <label class="btn primary">
+          Ouvrir<span class="wide">&nbsp;des fichiers</span>
+          <input id="file-input" type="file" accept=".csv,.srt,.txt" multiple hidden />
+        </label>
+        <button id="demo-btn" class="btn">Vol de démo</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="welcome" class="welcome card">
+        <h1>Analysez vos vols FPV long range</h1>
+        <p>Glissez-déposez vos fichiers ici, ou utilisez « Ouvrir des fichiers ». Tout est traité dans votre navigateur : aucun fichier n'est envoyé sur un serveur.</p>
+        <ul>
+          <li><b>Log télémétrie radio (.csv)</b> : carte SD de la radio EdgeTX / OpenTX (dossier <code>LOGS</code>), avec ELRS, Crossfire, FrSky… → trace GPS, batterie, liaison radio.</li>
+          <li><b>Sous-titres vidéo (.srt)</b>, optionnel : enregistrés par les lunettes DJI (O3, O4, FPV) ou Walksnail → qualité de la liaison vidéo.</li>
+        </ul>
+        <p class="muted">Astuce : activez les logs dans EdgeTX via une « Fonction spéciale » → <i>Écrire logs SD</i> (0,2 s) sur l'interrupteur d'armement.</p>
+      </section>
+
+      <section id="app" class="app" hidden>
+        <div class="files" id="files"></div>
+
+        <div class="map-wrap card">
+          <div id="map"></div>
+          <div class="map-tools">
+            <label>Couleur
+              <select id="metric-select"></select>
+            </label>
+            <div class="legend"><span id="legend-min"></span><div id="legend-bar"></div><span id="legend-max"></span></div>
+          </div>
+          <div class="map-tools2">
+            <select id="basemap-select" aria-label="Fond de carte">
+              <option value="satellite">Satellite</option>
+              <option value="topo">Topo</option>
+            </select>
+            <button id="fit-btn" class="btn small" title="Recentrer sur le vol">⤢</button>
+          </div>
+          <div id="hud" class="hud"></div>
+        </div>
+
+        <div class="timeline card">
+          <button id="play-btn" class="btn icon" aria-label="Lecture">▶</button>
+          <input id="time-slider" type="range" min="0" max="1" step="0.1" value="0" />
+          <span id="time-label" class="mono">0:00</span>
+          <select id="speed-select" aria-label="Vitesse de lecture">
+            <option value="1">×1</option>
+            <option value="5" selected>×5</option>
+            <option value="20">×20</option>
+            <option value="50">×50</option>
+          </select>
+          <label class="check"><input id="follow-check" type="checkbox" /> Suivre</label>
+        </div>
+
+        <div id="video-sync" class="video-sync card" hidden>
+          <span>Synchro vidéo</span>
+          <button class="btn small" data-off="-1">−1 s</button>
+          <input id="offset-input" type="number" step="0.5" value="0" />
+          <button class="btn small" data-off="1">+1 s</button>
+          <button id="offset-auto" class="btn small">Auto</button>
+          <span class="muted">décalage du début de la vidéo par rapport au log</span>
+        </div>
+
+        <div id="stats" class="stats"></div>
+        <div id="charts" class="charts"></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      FPV Analytics <span id="app-version"></span> · Licence MIT ·
+      <a href="https://github.com/harantol/fpv_analytics" target="_blank" rel="noopener">Code source</a>
+    </footer>
+
+    <div id="drop-overlay" class="drop-overlay" hidden>Déposez vos fichiers .csv / .srt</div>
+    <div id="toast" class="toast" hidden></div>
+  </body>
+</html>
