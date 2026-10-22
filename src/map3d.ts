@@ -6,6 +6,7 @@ import type { Flight, Point } from './analysis';
 import { EVENT_COLORS, type FlightEvent } from './events';
 import { colorFor, domainOf, type Metric } from './metrics';
 import { TERRAIN_URL } from './elevation';
+import { registerTileProtocol, viaCache, type Bounds } from './tilecache';
 
 export type Basemap = 'satellite' | 'topo';
 
@@ -22,11 +23,19 @@ const BASEMAPS: Record<Basemap, { tiles: string[]; attribution: string; maxzoom:
   },
 };
 
+/** Modèles d'URL à télécharger pour utiliser la carte hors ligne. */
+export function offlineTemplates(basemap: Basemap, maxZoom: number) {
+  return [
+    { url: BASEMAPS[basemap].tiles[0], minZoom: 8, maxZoom: Math.min(maxZoom, BASEMAPS[basemap].maxzoom) },
+    { url: TERRAIN_URL, minZoom: 8, maxZoom: Math.min(maxZoom - 1, 15) },
+  ];
+}
+
 function style(basemap: Basemap): StyleSpecification {
   const b = BASEMAPS[basemap];
   const dem = {
     type: 'raster-dem' as const,
-    tiles: [TERRAIN_URL],
+    tiles: [viaCache(TERRAIN_URL)],
     encoding: 'terrarium' as const,
     tileSize: 256,
     maxzoom: 15,
@@ -34,7 +43,7 @@ function style(basemap: Basemap): StyleSpecification {
   return {
     version: 8,
     sources: {
-      base: { type: 'raster', tiles: b.tiles, tileSize: 256, maxzoom: b.maxzoom, attribution: b.attribution },
+      base: { type: 'raster', tiles: b.tiles.map(viaCache), tileSize: 256, maxzoom: b.maxzoom, attribution: b.attribution },
       terrain: { ...dem, attribution: 'Relief : AWS Terrain Tiles (Mapzen)' },
       hillshadeSrc: dem,
     },
@@ -66,7 +75,10 @@ export class FlightMap {
   private ready: Promise<void>;
   onPick: ((t: number) => void) | null = null;
 
+  basemap: Basemap = 'satellite';
+
   constructor(container: HTMLElement) {
+    registerTileProtocol();
     this.map = new maplibregl.Map({
       container,
       style: style('satellite'),
@@ -91,7 +103,14 @@ export class FlightMap {
     this.map.on('style.load', () => this.addShadowLayer());
   }
 
+  /** Zone actuellement visible. */
+  viewBounds(): Bounds {
+    const b = this.map.getBounds();
+    return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() };
+  }
+
   setBasemap(b: Basemap) {
+    this.basemap = b;
     this.map.setStyle(style(b));
   }
 
