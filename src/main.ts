@@ -14,6 +14,7 @@ import { isNative, setupNative } from './native';
 import { compactEvents, detectEvents, type FlightEvent } from './events';
 import { deleteFlight, flightKey, fromStoredVideo, getFlight, listFlights, requestPersistence, saveFlight, toStoredVideo, updateFlight } from './library';
 import { pairVideos, toNaiveLocal } from './pairing';
+import { setupOfflineDialog } from './offline-ui';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -492,6 +493,8 @@ const help = $<HTMLDialogElement>('help');
 document.querySelectorAll('[data-open-help]').forEach((b) => b.addEventListener('click', () => help.showModal()));
 $('help-close').addEventListener('click', () => help.close());
 help.addEventListener('click', (e) => e.target === help && help.close());
+
+setupOfflineDialog(() => map);
 
 $('app-version').textContent = `v${__APP_VERSION__}`;
 setupNative({

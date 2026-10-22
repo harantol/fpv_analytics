@@ -1,3 +1,5 @@
+import { cachedFetch } from './tilecache';
+
 /**
  * Lecture de l'altitude du sol à partir des tuiles d'élévation « terrarium »
  * (AWS Terrain Tiles, libres d'accès), celles-là mêmes qu'utilise la carte 3D.
@@ -13,7 +15,7 @@ function loadTile(x: number, y: number): Promise<Uint8ClampedArray | null> {
   let p = cache.get(key);
   if (!p) {
     const url = TERRAIN_URL.replace('{z}', String(ZOOM)).replace('{x}', String(x)).replace('{y}', String(y));
-    p = fetch(url)
+    p = cachedFetch(url)
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(r.statusText))))
       .then((b) => createImageBitmap(b))
       .then((img) => {
