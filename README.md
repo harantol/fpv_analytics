@@ -32,7 +32,11 @@ npm test         # tests des parseurs et des calculs
 npm run build    # version statique dans dist/
 ```
 
-Le workflow `.github/workflows/deploy.yml` publie l'app sur GitHub Pages à chaque push sur `main` (activez *Settings → Pages → Source : GitHub Actions*).
+## Versions et publication
+
+- Version `MAJEUR.MINEUR` (même règle que auto_pid_tuning) : MAJEUR est dans le fichier `VERSION`, MINEUR compte les merges sur `main` depuis le dernier changement de `VERSION` (`scripts/version.mjs`). Changer `VERSION` repart à `X.0`.
+- Chaque merge sur `main` (`.github/workflows/release.yml`) : tests, tag `vX.Y`, release GitHub dont les notes sont le titre de la PR mergée.
+- La CI (`.github/workflows/ci.yml`) vérifie types, tests et build sur chaque PR.
 
 ## Structure
 

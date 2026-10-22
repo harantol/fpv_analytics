@@ -309,4 +309,6 @@ window.addEventListener('drop', (e) => {
   if (files.length) loadFiles(files);
 });
 
+$('app-version').textContent = `v${__APP_VERSION__}`;
+
 if (new URLSearchParams(location.search).has('demo')) $('demo-btn').click();

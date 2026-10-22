@@ -1,13 +1,13 @@
 {
   "name": "fpv-analytics",
-  "version": "0.1.0",
   "description": "Analyse de vols FPV long range : trace GPS 3D, batterie, liaison radio et vidéo",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "version": "node scripts/version.mjs"
   },
   "repository": {
     "type": "git",
