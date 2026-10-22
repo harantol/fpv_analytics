@@ -373,6 +373,48 @@ main {
   color: #cbd5e1;
 }
 
+.viz {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.video-panel {
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+.video-panel[hidden] {
+  display: none;
+}
+.video-panel video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  cursor: pointer;
+}
+.video-status {
+  position: absolute;
+  inset: auto 8px 8px 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(11, 18, 32, 0.8);
+  color: #fff;
+  font-size: 12px;
+  text-align: center;
+}
+.video-status[hidden] {
+  display: none;
+}
+/* Écran large : carte et vidéo côte à côte */
+@media (min-width: 1000px) {
+  .viz.has-video {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    align-items: start;
+  }
+}
+
 .timeline,
 .video-sync {
   display: flex;
@@ -645,5 +687,20 @@ html:not(.native) .native-only {
 @media (max-width: 420px) {
   .wide {
     display: none;
+  }
+}
+
+/* Mobile avec vidéo : carte plus basse et barre de lecture toujours visible */
+@media (max-width: 999px) {
+  .viz.has-video .map-wrap {
+    height: 38vh;
+    min-height: 260px;
+  }
+  .app:has(.viz.has-video) .timeline {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.15);
   }
 }

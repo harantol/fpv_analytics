@@ -15,6 +15,7 @@ import { compactEvents, detectEvents, type FlightEvent } from './events';
 import { deleteFlight, flightKey, fromStoredVideo, getFlight, listFlights, requestPersistence, saveFlight, toStoredVideo, updateFlight } from './library';
 import { pairVideos, toNaiveLocal } from './pairing';
 import { setupOfflineDialog } from './offline-ui';
+import { VideoPlayer } from './videoplayer';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -31,6 +32,9 @@ const state = {
 
 let map: FlightMap | null = null;
 let charts: Charts | null = null;
+const player = new VideoPlayer($('video-panel'));
+/** Fichiers vidéo choisis pendant la session (jamais copiés : lus directement). */
+const videoFiles = new Map<string, File>();
 
 function toast(msg: string, error = false) {
   const el = $('toast');
@@ -86,6 +90,7 @@ async function importFiles(files: File[]) {
   for (const [i, file] of files.entries()) {
     try {
       if (isVideoFile(file) || /\.srt$/i.test(file.name)) {
+        if (isVideoFile(file)) videoFiles.set(file.name, file);
         videos.push({ id: `v${i}`, ...(await parseVideoFile(file)) });
         continue;
       }
@@ -244,7 +249,9 @@ async function showFlight(videoOffset: number) {
   slider.max = String(flight.duration);
   $('video-sync').hidden = !state.video;
   $<HTMLInputElement>('offset-input').value = String(flight.videoOffset);
-  setTime(firstFlyingTime(flight));
+  attachPlayer();
+  // Avec la vidéo, on démarre là où elle commence
+  setTime(player.loaded ? Math.max(0, flight.videoOffset) : firstFlyingTime(flight));
 }
 
 /** Premier instant où le drone s'éloigne du départ (pour ne pas démarrer au sol). */
@@ -256,8 +263,24 @@ function firstFlyingTime(f: Flight): number {
 function renderFiles() {
   const parts = [`<button id="back-btn" class="chip back">← Mes vols</button>`, `<span class="chip">📈 ${escapeHtml(state.log!.name)}</span>`];
   if (state.flight?.log.start) parts.push(`<span class="chip">${state.flight.log.start.toLocaleString('fr-FR', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' })}</span>`);
-  parts.push(state.video ? `<span class="chip">🎥 ${escapeHtml(state.video.name)}</span>` : `<label class="chip add">+ Ajouter la vidéo<input type="file" ${isNative ? '' : 'accept=".srt,.mp4,.mov"'} hidden id="srt-input" /></label>`);
+  const v = state.video;
+  if (!v) parts.push(`<label class="chip add">+ Ajouter la vidéo<input type="file" ${isNative ? '' : 'accept=".srt,.mp4,.mov"'} hidden id="srt-input" /></label>`);
+  else if (/\.(mp4|mov)$/i.test(v.name) && !videoFiles.has(v.name))
+    // Vol rouvert depuis la bibliothèque : la vidéo n'est pas gardée, on la redemande pour la regarder
+    parts.push(`<label class="chip add">🎥 ${escapeHtml(v.name)} · ▶ Ouvrir la vidéo<input type="file" ${isNative ? '' : 'accept=".mp4,.mov"'} hidden id="video-open" /></label>`);
+  else parts.push(`<span class="chip">🎥 ${escapeHtml(v.name)}</span>`);
   $('files').innerHTML = parts.join('');
+  const videoOpen = document.getElementById('video-open') as HTMLInputElement | null;
+  videoOpen?.addEventListener('change', () => {
+    const file = videoOpen.files?.[0];
+    if (!file) return;
+    if (file.name === state.video?.name) {
+      videoFiles.set(file.name, file);
+      renderFiles();
+      attachPlayer();
+      setTime(state.t);
+    } else importFiles([file]);
+  });
   $('back-btn').addEventListener('click', () => showLibrary());
   const srtInput = document.getElementById('srt-input') as HTMLInputElement | null;
   srtInput?.addEventListener('change', () => srtInput.files && importFiles([...srtInput.files]));
@@ -359,10 +382,29 @@ function gpsPointAt(t: number): Point | null {
   return f.gps[indexAt(f.gps, t)];
 }
 
-function setTime(t: number) {
+/** Charge dans le lecteur la vidéo du vol affiché, si son fichier est disponible. */
+function attachPlayer() {
+  const f = state.flight;
+  const file = state.video ? videoFiles.get(state.video.name) : undefined;
+  if (!f || !file) {
+    player.clear();
+    return;
+  }
+  if (player.loadedName !== file.name) {
+    player.load(file, f.videoOffset);
+    $<HTMLSelectElement>('speed-select').value = '1';
+  } else player.setOffset(f.videoOffset);
+}
+
+/**
+ * Place la lecture à l'instant t du vol. fromVideo : l'instant vient de la
+ * vidéo en cours de lecture, il ne faut donc pas la repositionner.
+ */
+function setTime(t: number, fromVideo = false) {
   const f = state.flight;
   if (!f) return;
   state.t = Math.min(f.duration, Math.max(0, t));
+  if (!fromVideo) player.seek(state.t);
   $<HTMLInputElement>('time-slider').value = String(state.t);
   $('time-label').textContent = `${formatDuration(state.t)} / ${formatDuration(f.duration)}`;
   map?.setCurrent(gpsPointAt(state.t));
@@ -395,6 +437,15 @@ function tick(now: number) {
   const dt = (now - lastFrame) / 1000;
   lastFrame = now;
   const speed = Number($<HTMLSelectElement>('speed-select').value);
+  // Pendant la vidéo, c'est elle qui donne l'heure du vol
+  if (player.covers(state.t)) {
+    if (!player.playing) player.play(state.t, speed);
+    else player.video.playbackRate = Math.min(speed, 16);
+    setTime(player.flightTime(), true);
+    requestAnimationFrame(tick);
+    return;
+  }
+  if (player.playing) player.pause();
   const next = state.t + dt * speed;
   if (next >= state.flight.duration) {
     setTime(state.flight.duration);
@@ -408,6 +459,7 @@ function tick(now: number) {
 function setPlaying(on: boolean) {
   state.playing = on;
   $('play-btn').textContent = on ? '❚❚' : '▶';
+  if (!on) player.pause();
   if (on) {
     if (state.flight && state.t >= state.flight.duration - 0.1) setTime(0);
     lastFrame = performance.now();
@@ -441,12 +493,15 @@ $<HTMLSelectElement>('basemap-select').addEventListener('change', (e) => map?.se
 $('fit-btn').addEventListener('click', () => map?.fit());
 $<HTMLInputElement>('time-slider').addEventListener('input', (e) => setTime(Number((e.target as HTMLInputElement).value)));
 $('play-btn').addEventListener('click', () => setPlaying(!state.playing));
+player.video.addEventListener('click', () => setPlaying(!state.playing));
 $<HTMLInputElement>('follow-check').addEventListener('change', (e) => map?.setFollow((e.target as HTMLInputElement).checked));
 
 function setOffset(off: number) {
   const f = state.flight;
   if (!f) return;
+  off = Math.round(off * 10) / 10;
   attachVideo(f, off);
+  player.setOffset(off, state.t);
   $<HTMLInputElement>('offset-input').value = String(off);
   if (state.currentId !== null) updateFlight(state.currentId, { videoOffset: off });
   renderStats(computeStats(f));

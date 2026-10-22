@@ -7,6 +7,7 @@ Application Android (et web) pour analyser des vols de drone FPV long range :
 - **Liaison radio** : RQly / TQly, RSSI, SNR, puissance d'émission, mode RF. Détection des pertes de liaison (RQly à 0 %) et du temps passé sous 50 %.
 - **Liaison vidéo** : signal (0–4), débit et latence lus dans le `.srt` des lunettes DJI / Walksnail.
 - **Lecture du vol** : timeline, lecture accélérée, suivi caméra, HUD, curseur synchronisé entre la carte et les graphiques.
+- **Vidéo des lunettes synchronisée** : la vidéo `.mp4` s'affiche à côté de la carte et suit la lecture ; un clic sur une courbe ou un événement montre l'image du même instant.
 
 Tout est traité dans le navigateur : aucun fichier n'est envoyé sur un serveur.
 
