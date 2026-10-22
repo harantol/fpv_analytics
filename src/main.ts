@@ -38,7 +38,7 @@ const player = new VideoPlayer($('video-panel'));
 const videoFiles = new Map<string, File>();
 
 /** Lecture du débit sur l'OSD en cours (une à la fois). */
-let osdJob: { name: string; abort: AbortController; pct: number } | null = null;
+let osdJob: { name: string; abort: AbortController; label: string } | null = null;
 
 function toast(msg: string, error = false) {
   const el = $('toast');
@@ -275,7 +275,7 @@ function renderFiles() {
     parts.push(`<label class="chip add">🎥 ${escapeHtml(v.name)} · ▶ Ouvrir la vidéo<input type="file" ${isNative ? '' : 'accept=".mp4,.mov"'} hidden id="video-open" /></label>`);
   else parts.push(`<span class="chip">🎥 ${escapeHtml(v.name)}</span>`);
   if (osdJob && osdJob.name === v?.name)
-    parts.push(`<button id="osd-cancel" class="chip osd" title="Annuler">🔎 Lecture du débit sur l'OSD… <b>${osdJob.pct} %</b> ✕</button>`);
+    parts.push(`<button id="osd-cancel" class="chip osd" title="Annuler">🔎 Débit OSD : <b>${osdJob.label}</b> ✕</button>`);
   else if (v?.osd) parts.push(`<span class="chip">📶 Débit lu sur l'OSD</span>`);
   $('files').innerHTML = parts.join('');
   document.getElementById('osd-cancel')?.addEventListener('click', () => osdJob?.abort.abort());
@@ -407,7 +407,7 @@ async function startOsdRead() {
   const video = state.video;
   const file = video ? videoFiles.get(video.name) : undefined;
   if (!video || !file || video.osd || osdJob) return;
-  const job = { name: video.name, abort: new AbortController(), pct: 0 };
+  const job = { name: video.name, abort: new AbortController(), label: 'préparation…' };
   osdJob = job;
   const flightId = state.currentId;
   renderFiles();
@@ -416,10 +416,17 @@ async function startOsdRead() {
     const readings = await readOsdBitrate(file, {
       signal: job.abort.signal,
       hints: dvrHints(video.samples),
-      onProgress: ({ done, total }) => {
-        const pct = Math.floor((100 * done) / total);
-        if (pct !== job.pct) {
-          job.pct = pct;
+      onProgress: ({ stage, done, total }) => {
+        const label =
+          stage === 'video'
+            ? 'chargement de la vidéo…'
+            : stage === 'engine'
+              ? 'démarrage du moteur de lecture…'
+              : stage === 'locate'
+                ? `recherche de « Mbps » (${done + 1}/${total})…`
+                : `${Math.floor((100 * done) / total)} %`;
+        if (label !== job.label) {
+          job.label = label;
           if (state.video?.name === job.name) renderFiles();
         }
       },
