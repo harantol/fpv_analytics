@@ -37,8 +37,7 @@ npm run build    # version statique dans dist/
 L'app web est emballée avec [Capacitor](https://capacitorjs.com) (dossier `android/`), sans aucune dépendance Google : elle est compatible F-Droid.
 
 - Chaque PR produit un **APK de test** (artefact `fpv-analytics-debug-apk` de la CI).
-- Chaque release produit un **APK signé**, ajouté à la release GitHub.
-- La publication sur votre dépôt F-Droid perso est décrite dans [docs/fdroid.md](docs/fdroid.md).
+- Chaque merge sur `main` produit un **APK signé**, attaché à la release GitHub `vX.Y`, où le magasin F-Droid perso le récupère (voir [docs/fdroid.md](docs/fdroid.md)).
 
 ```bash
 npm run android:sync   # build web + copie dans android/
@@ -46,10 +45,10 @@ npm run android:open   # ouvre le projet dans Android Studio
 npm run assets         # régénère icônes et splash depuis assets/
 ```
 
-## Versions et contributions
+## Versions et publication
 
-- Les messages de commit suivent [Conventional Commits](https://www.conventionalcommits.org/fr/) : `feat: …` (nouvelle fonction → version mineure), `fix: …` (correction → version patch), `feat!: …` (changement cassant).
-- [release-please](https://github.com/googleapis/release-please) tient à jour une PR de release (version dans `package.json` + `CHANGELOG.md`). La merger crée le tag `vX.Y.Z` et la release GitHub.
+- Version `MAJEUR.MINEUR` (même règle que auto_pid_tuning) : MAJEUR est dans le fichier `VERSION`, MINEUR compte les merges sur `main` depuis le dernier changement de `VERSION` (`scripts/version.mjs`). Changer `VERSION` repart à `X.0`.
+- Chaque merge sur `main` (`.github/workflows/release.yml`) : tests, tag `vX.Y`, release GitHub dont les notes sont le titre de la PR mergée.
 - La CI (`.github/workflows/ci.yml`) vérifie types, tests et build sur chaque PR.
 
 ## Structure
