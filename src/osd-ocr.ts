@@ -27,8 +27,6 @@ type RelBox = Box;
 const OCR_BASE = () => new URL('./ocr/', document.baseURI).href;
 /** Largeur de l'image analysée pour chercher « Mbps ». */
 const LOCATE_WIDTH = 1280;
-/** Après autant de lectures ratées d'affilée, on recherche « Mbps » (OSD déplacé ?). */
-const RELOCATE_AFTER = 3;
 
 async function newWorker(): Promise<Worker> {
   const base = OCR_BASE();
@@ -204,7 +202,8 @@ export async function readOsdBitrate(file: Blob, opts: { step?: number; onProgre
 
     const frame: Frame = { get width() { return grab.video.videoWidth; }, draw: (th, region, scaleTo) => grab.draw(th, region, scaleTo) };
     let at: Located | null = null;
-    // Recherche initiale de « Mbps » sur quelques images réparties dans la vidéo
+    // L'OSD ne bouge pas pendant une vidéo (il peut changer d'une vidéo à l'autre) :
+    // on cherche « Mbps » une fois, sur quelques images réparties dans la vidéo
     for (const f of [0.05, 0.2, 0.4, 0.6, 0.8]) {
       await grab.seek(duration * f);
       at = await locate(worker, frame);
@@ -213,23 +212,12 @@ export async function readOsdBitrate(file: Blob, opts: { step?: number; onProgre
     if (!at) return null;
 
     const readings: OsdReading[] = [];
-    let misses = 0;
     for (const [i, t] of times.entries()) {
       if (opts.signal?.aborted) break;
       await grab.seek(t);
-      let v = await readNumber(worker, frame, at);
-      if (v === null && ++misses >= RELOCATE_AFTER) {
-        const again = await locate(worker, frame);
-        if (again) {
-          at = again;
-          v = await readNumber(worker, frame, at);
-        }
-        misses = 0;
-      }
-      if (v !== null) {
-        misses = 0;
-        readings.push({ t, v });
-      }
+      // Une image sans nombre lisible (coupure, image figée) est simplement ignorée
+      const v = await readNumber(worker, frame, at);
+      if (v !== null) readings.push({ t, v });
       opts.onProgress?.({ done: i + 1, total: times.length });
     }
     return rejectOutliers(readings);
