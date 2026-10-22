@@ -1,4 +1,6 @@
 import { createWorker, OEM, PSM, type Worker } from 'tesseract.js';
+import { set as idbSet } from 'idb-keyval';
+import { relaxedSimd, simd } from 'wasm-feature-detect';
 import { findBitrateRegion, parseBitrate, refineTimes, rejectOutliers, type Box, type OcrWord } from './osd-parse';
 
 /**
@@ -47,15 +49,55 @@ const OCR_BASE = () => new URL('./ocr/', document.baseURI).href;
 /** Largeur de l'image analysée pour chercher « Mbps ». */
 const LOCATE_WIDTH = 960;
 
+/**
+ * Démarre Tesseract sans qu'il ait besoin du réseau.
+ *
+ * Dans l'app Android, les fichiers de l'app sont servis par une adresse locale simulée
+ * (https://localhost) que la WebView ne fournit pas toujours aux Web Workers : le moteur
+ * restait alors bloqué au démarrage. La page principale charge donc elle-même le script
+ * du worker, le moteur (WebAssembly) et les données de langue, et les lui transmet :
+ *  - script du worker et moteur sous forme d'adresses blob: (lues en mémoire) ;
+ *  - données de langue déposées dans le cache de Tesseract (IndexedDB), relu par le worker.
+ */
+let assets: Promise<{ worker: string; core: string }> | null = null;
+
+async function blobUrlOf(url: string, type: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`fichier ${url.split('/').pop()} introuvable (${res.status})`);
+  return URL.createObjectURL(new Blob([await res.arrayBuffer()], { type }));
+}
+
+function loadAssets(): Promise<{ worker: string; core: string }> {
+  assets ??= (async () => {
+    const base = OCR_BASE();
+    // Même choix de moteur que Tesseract : selon les instructions SIMD du processeur
+    const core = (await relaxedSimd()) ? 'tesseract-core-relaxedsimd-lstm.wasm.js' : (await simd()) ? 'tesseract-core-simd-lstm.wasm.js' : 'tesseract-core-lstm.wasm.js';
+    const [worker, coreUrl, lang] = await Promise.all([
+      blobUrlOf(`${base}worker.min.js`, 'application/javascript'),
+      blobUrlOf(`${base}${core}`, 'application/javascript'),
+      fetch(`${base}eng.traineddata.gz`).then((r) => {
+        if (!r.ok) throw new Error(`données de langue introuvables (${r.status})`);
+        return r.arrayBuffer();
+      }),
+    ]);
+    // Clé lue par le worker : `${cachePath || '.'}/${langue}.traineddata` (gzip accepté)
+    await idbSet('./eng.traineddata', new Uint8Array(lang));
+    // Tesseract ne prend une adresse comme fichier précis que si elle finit par « js »
+    return { worker, core: `${coreUrl}#core.js` };
+  })().catch((e) => {
+    assets = null;
+    throw e;
+  });
+  return assets;
+}
+
 async function newWorker(): Promise<Worker> {
-  const base = OCR_BASE();
+  const { worker, core } = await loadAssets();
   return createWorker('eng', OEM.LSTM_ONLY, {
-    workerPath: `${base}worker.min.js`,
-    corePath: base,
-    langPath: base.replace(/\/$/, ''),
-    gzip: true,
-    cacheMethod: 'none',
+    workerPath: worker,
     workerBlobURL: false,
+    corePath: core,
+    cacheMethod: 'readOnly',
   });
 }
 
