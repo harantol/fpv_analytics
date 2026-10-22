@@ -346,6 +346,13 @@ function renderStats(s: Stats) {
     { label: 'Altitude max', value: fmt(s.maxAlt, 0, 'm'), sub: 'par rapport au départ' },
     { label: 'Vitesse max', value: fmt(s.maxSpeed, 0, 'km/h') },
   ];
+  if (f.gpsInterval !== null)
+    cards.push({
+      label: 'Fréquence GPS',
+      value: `1 pos. / ${f.gpsInterval.toFixed(1).replace('.', ',')} s`,
+      sub: `${f.gpsFixes} positions reçues${f.gpsInterval > 1.5 ? ' · voir l\'aide' : ''}`,
+      level: f.gpsInterval > 3 ? 'bad' : f.gpsInterval > 1.5 ? 'warn' : 'ok',
+    });
   if (s.minVoltage !== undefined)
     cards.push({
       label: 'Tension min',
