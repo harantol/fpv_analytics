@@ -17,8 +17,27 @@ export interface OsdReading {
 }
 
 export interface OsdProgress {
+  /** Étape en cours : chargement de la vidéo, démarrage de l'OCR, recherche de « Mbps », lecture. */
+  stage: 'video' | 'engine' | 'locate' | 'read';
   done: number;
   total: number;
+}
+
+/** Rejette si la promesse n'aboutit pas à temps (évite un blocage silencieux). */
+function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
 }
 
 /** Zone en fraction de l'image (indépendante de la résolution). */
@@ -26,7 +45,7 @@ type RelBox = Box;
 
 const OCR_BASE = () => new URL('./ocr/', document.baseURI).href;
 /** Largeur de l'image analysée pour chercher « Mbps ». */
-const LOCATE_WIDTH = 1280;
+const LOCATE_WIDTH = 960;
 
 async function newWorker(): Promise<Worker> {
   const base = OCR_BASE();
@@ -67,20 +86,27 @@ function binarize(ctx: CanvasRenderingContext2D, w: number, h: number, threshold
 class FrameGrabber {
   readonly video = document.createElement('video');
   private url: string;
+  private loaded: Promise<void>;
   constructor(file: Blob) {
     this.url = URL.createObjectURL(file);
     this.video.muted = true;
     this.video.playsInline = true;
     this.video.preload = 'auto';
+    // Écoute posée AVANT de charger la vidéo : une erreur immédiate ne peut pas être manquée
+    this.loaded = new Promise((resolve, reject) => {
+      this.video.addEventListener('loadeddata', () => resolve(), { once: true });
+      this.video.addEventListener('error', () => reject(new Error("cette vidéo ne peut pas être décodée sur cet appareil (enregistrement en H.265 ?). Réglez l'enregistrement des lunettes en H.264.")), { once: true });
+    });
+    // Certaines WebView ne chargent pas une vidéo hors de la page : on l'y ajoute, invisible
+    Object.assign(this.video.style, { position: 'fixed', left: '0', top: '0', width: '2px', height: '2px', opacity: '0', pointerEvents: 'none' });
+    document.body.appendChild(this.video);
     this.video.src = this.url;
   }
 
   ready(): Promise<void> {
-    if (this.video.readyState >= 1) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      this.video.addEventListener('loadedmetadata', () => resolve(), { once: true });
-      this.video.addEventListener('error', () => reject(new Error('Vidéo illisible sur cet appareil (codec H.265 ?).')), { once: true });
-    });
+    if (this.video.readyState >= 2) return Promise.resolve();
+    if (this.video.error) return Promise.reject(new Error('cette vidéo ne peut pas être décodée sur cet appareil.'));
+    return withTimeout(this.loaded, 30000, 'la vidéo ne se charge pas (fichier trop lourd ou format non pris en charge ?).');
   }
 
   get duration() {
@@ -104,6 +130,7 @@ class FrameGrabber {
   dispose() {
     this.video.removeAttribute('src');
     this.video.load();
+    this.video.remove();
     URL.revokeObjectURL(this.url);
   }
 }
@@ -199,10 +226,14 @@ export async function readOsdBitrate(
   opts: { step?: number; hints?: number[]; onProgress?: (p: OsdProgress) => void; signal?: AbortSignal } = {},
 ): Promise<OsdReading[] | null> {
   const step = opts.step ?? 1;
+  const progress = opts.onProgress ?? (() => {});
+  progress({ stage: 'video', done: 0, total: 1 });
   const grab = new FrameGrabber(file);
-  const worker = await newWorker();
+  let worker: Worker | null = null;
   try {
     await grab.ready();
+    progress({ stage: 'engine', done: 0, total: 1 });
+    worker = await withTimeout(newWorker(), 60000, 'le moteur de lecture de texte ne démarre pas.');
     const duration = grab.duration;
     const times: number[] = [];
     for (let t = 0.5; t < duration; t += step) times.push(t);
@@ -211,7 +242,10 @@ export async function readOsdBitrate(
     let at: Located | null = null;
     // L'OSD ne bouge pas pendant une vidéo (il peut changer d'une vidéo à l'autre) :
     // on cherche « Mbps » une fois, sur quelques images réparties dans la vidéo
-    for (const f of [0.05, 0.2, 0.4, 0.6, 0.8]) {
+    const probes = [0.05, 0.2, 0.4, 0.6, 0.8];
+    for (const [i, f] of probes.entries()) {
+      if (opts.signal?.aborted) return null;
+      progress({ stage: 'locate', done: i, total: probes.length });
       await grab.seek(duration * f);
       at = await locate(worker, frame);
       if (at) break;
@@ -222,26 +256,26 @@ export async function readOsdBitrate(
     const readAt = async (t: number) => {
       await grab.seek(t);
       // Une image sans nombre lisible (coupure, image figée) est simplement ignorée
-      const v = await readNumber(worker, frame, at!);
+      const v = await readNumber(worker!, frame, at!);
       if (v !== null) readings.push({ t, v });
     };
     // Passe 1 : 0 → 75 % de la progression
     for (const [i, t] of times.entries()) {
       if (opts.signal?.aborted) return null;
       await readAt(t);
-      opts.onProgress?.({ done: Math.round((750 * (i + 1)) / times.length), total: 1000 });
+      progress({ stage: 'read', done: Math.round((750 * (i + 1)) / times.length), total: 1000 });
     }
     // Passe 2 : lecture fine autour des changements (au plus autant d'images qu'en passe 1)
     const fine = refineTimes(readings, times, opts.hints ?? [], { step: 0.2, max: times.length });
     for (const [i, t] of fine.entries()) {
       if (opts.signal?.aborted) return null;
       await readAt(t);
-      opts.onProgress?.({ done: 750 + Math.round((250 * (i + 1)) / fine.length), total: 1000 });
+      progress({ stage: 'read', done: 750 + Math.round((250 * (i + 1)) / fine.length), total: 1000 });
     }
     readings.sort((a, b) => a.t - b.t);
     return rejectOutliers(readings);
   } finally {
-    await worker.terminate();
+    await worker?.terminate();
     grab.dispose();
   }
 }
