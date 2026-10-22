@@ -1,20 +1,21 @@
-import groovy.json.JsonSlurper
-
 apply plugin: 'com.android.application'
 
-// Version unique : celle de package.json (gérée par release-please).
-// versionCode = MAJ*10000 + MIN*100 + PATCH  (ex. 1.2.3 -> 10203)
-def pkg = new JsonSlurper().parse(file('../../package.json'))
-def appVersionName = pkg.version as String
-def (vMajor, vMinor, vPatch) = appVersionName.tokenize('.-')[0..2].collect { it as int }
-def appVersionCode = vMajor * 10000 + vMinor * 100 + vPatch
+// Version MAJEUR.MINEUR (scripts/version.mjs, comme auto_pid_tuning) ; APP_VERSION l'emporte.
+// versionCode = MAJEUR*1000 + MINEUR  (ex. 1.6 -> 1006) : augmente à chaque version.
+def appVersionName = System.getenv('APP_VERSION') ?: providers.exec {
+    commandLine 'node', file('../../scripts/version.mjs').absolutePath
+}.standardOutput.asText.get().trim()
+def versionParts = appVersionName.tokenize('.')
+def appVersionCode = versionParts.size() == 2 && versionParts.every { it.isInteger() } ?
+        versionParts[0].toInteger() * 1000 + versionParts[1].toInteger() : 1
 
-// Signature release : variables d'environnement (secrets CI) ou keystore.properties local
+// Signature release : variables d'environnement (secrets CI) ou keystore.properties local.
+// Un seul mot de passe pour le keystore et la clé, alias « fpv-analytics ».
 def keystoreProps = new Properties()
 def keystorePropsFile = rootProject.file('keystore.properties')
 if (keystorePropsFile.exists()) keystorePropsFile.withInputStream { keystoreProps.load(it) }
-def signingValue = { String envName, String propName -> System.getenv(envName) ?: keystoreProps.getProperty(propName) }
-def releaseStoreFile = signingValue('ANDROID_KEYSTORE_FILE', 'storeFile')
+def releaseStoreFile = System.getenv('ANDROID_KEYSTORE') ?: keystoreProps.getProperty('storeFile')
+def releasePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD') ?: keystoreProps.getProperty('password')
 
 android {
     namespace = "io.github.harantol.fpvanalytics"
@@ -36,9 +37,9 @@ android {
         release {
             if (releaseStoreFile) {
                 storeFile file(releaseStoreFile)
-                storePassword signingValue('ANDROID_KEYSTORE_PASSWORD', 'storePassword')
-                keyAlias signingValue('ANDROID_KEY_ALIAS', 'keyAlias')
-                keyPassword signingValue('ANDROID_KEY_PASSWORD', 'keyPassword')
+                storePassword releasePassword
+                keyAlias 'fpv-analytics'
+                keyPassword releasePassword
             }
         }
     }
