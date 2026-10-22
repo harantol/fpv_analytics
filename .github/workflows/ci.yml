@@ -40,6 +40,12 @@ jobs:
       - name: APK debug (installable pour tester la PR)
         working-directory: android
         run: ./gradlew --no-daemon assembleDebug
+      - name: L'APK contient le moteur de lecture OSD
+        run: |
+          APK=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
+          for f in worker.min.js tesseract-core-lstm.wasm.js tesseract-core-simd-lstm.wasm.js tesseract-core-relaxedsimd-lstm.wasm.js eng.traineddata.bin; do
+            unzip -l "$APK" | grep -q "assets/public/ocr/$f$" || { echo "::error::$f absent de l'APK"; exit 1; }
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: fpv-analytics-debug-apk

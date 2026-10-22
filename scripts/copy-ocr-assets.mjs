@@ -23,7 +23,9 @@ const files = [
   [join(tess, 'dist', 'worker.min.js'), 'worker.min.js'],
   // Moteur LSTM uniquement (le plus précis) : variantes choisies selon le processeur
   ...['tesseract-core-lstm.wasm.js', 'tesseract-core-simd-lstm.wasm.js', 'tesseract-core-relaxedsimd-lstm.wasm.js'].map((f) => [join(core, f), f]),
-  [join(eng, '4.0.0_best_int', 'eng.traineddata.gz'), 'eng.traineddata.gz'],
+  // Nom neutre : le build Android décompresse les fichiers « .gz » des assets et retire
+  // leur extension. Le contenu reste compressé (gzip), Tesseract le reconnaît seul.
+  [join(eng, '4.0.0_best_int', 'eng.traineddata.gz'), 'eng.traineddata.bin'],
 ];
 for (const [from, to] of files) copyFileSync(from, join(OUT, to));
 console.log(`OCR : ${files.length} fichiers copiés dans public/ocr/`);
