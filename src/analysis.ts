@@ -14,6 +14,8 @@ export interface Point extends TelemetrySample {
   z?: number;
   /** Hauteur au-dessus du sol (m). */
   agl?: number;
+  /** Ligne où une nouvelle position GPS est arrivée (les autres sont interpolées). */
+  gpsFix?: boolean;
   video?: VideoSample;
 }
 
@@ -28,6 +30,10 @@ export interface Flight {
   home: { lat: number; lon: number; alt: number } | null;
   cells: number | null;
   duration: number;
+  /** Nombre de positions GPS distinctes reçues. */
+  gpsFixes: number;
+  /** Intervalle médian entre deux positions GPS (s). */
+  gpsInterval: number | null;
 }
 
 const R = 6371000;
@@ -60,12 +66,72 @@ export function indexAt<T extends { t: number }>(arr: T[], target: number): numb
   return lo;
 }
 
-/** Supprime les sauts GPS aberrants (vitesse implicite > 500 km/h). */
-function isGlitch(prev: Point, p: Point): boolean {
-  const dt = p.t - prev.t;
-  if (dt <= 0) return false;
-  const d = haversine(prev.lat!, prev.lon!, p.lat!, p.lon!);
-  return d / dt > 140;
+/** Vitesse maximale plausible entre deux positions GPS (m/s, environ 500 km/h). */
+const MAX_GPS_SPEED = 140;
+/** Au-delà de cet écart entre deux positions GPS (s), on n'interpole pas (perte de télémétrie). */
+const MAX_INTERP_GAP = 10;
+
+/**
+ * Nettoie la trace GPS d'un log radio.
+ *
+ * La radio écrit souvent 5 lignes/s, mais la position GPS n'arrive par la télémétrie
+ * que toutes les 1 à 5 s : la même position est répétée sur plusieurs lignes, puis saute.
+ *  - Les sauts aberrants sont détectés entre deux positions distinctes successives,
+ *    avec le temps écoulé depuis l'arrivée de la précédente (et non entre deux lignes).
+ *  - Entre deux positions, les lignes répétées reçoivent une position interpolée,
+ *    pour que la trace et le marqueur du drone avancent de façon continue.
+ */
+function cleanGps(points: Point[]): { gps: Point[]; fixCount: number; fixInterval: number | null } {
+  const key = (p: Point) => `${p.lat},${p.lon}`;
+  const fixes: Point[] = [];
+  const rejected = new Set<string>();
+  let last: Point | null = null;
+  for (const p of points) {
+    if (p.lat === undefined || p.lon === undefined) continue;
+    if (rejected.has(key(p))) {
+      delete p.lat;
+      delete p.lon;
+      continue;
+    }
+    if (last && key(p) === key(last)) continue; // même position répétée
+    if (last) {
+      const dt = p.t - last.t;
+      if (dt > 0 && haversine(last.lat!, last.lon!, p.lat, p.lon) / dt > MAX_GPS_SPEED) {
+        rejected.add(key(p));
+        delete p.lat;
+        delete p.lon;
+        continue;
+      }
+    }
+    p.gpsFix = true;
+    fixes.push(p);
+    last = p;
+  }
+
+  // Interpolation entre deux positions successives
+  let k = 0;
+  for (const p of points) {
+    if (p.lat === undefined || p.gpsFix) continue;
+    while (k + 1 < fixes.length && fixes[k + 1].t <= p.t) k++;
+    const a = fixes[k];
+    const b = fixes[k + 1];
+    if (!a || !b || p.t < a.t || b.t - a.t > MAX_INTERP_GAP) continue;
+    const f = (p.t - a.t) / (b.t - a.t);
+    p.lat = a.lat! + (b.lat! - a.lat!) * f;
+    p.lon = a.lon! + (b.lon! - a.lon!) * f;
+  }
+
+  const gaps: number[] = [];
+  for (let i = 1; i < fixes.length; i++) {
+    const dt = fixes[i].t - fixes[i - 1].t;
+    if (dt > 0 && dt <= MAX_INTERP_GAP) gaps.push(dt);
+  }
+  gaps.sort((x, y) => x - y);
+  return {
+    gps: points.filter((p) => p.lat !== undefined && p.lon !== undefined),
+    fixCount: fixes.length,
+    fixInterval: gaps.length ? gaps[Math.floor(gaps.length / 2)] : null,
+  };
 }
 
 export function buildFlight(log: FlightLog, video: VideoLog | null, videoOffset = 0): Flight {
@@ -74,16 +140,7 @@ export function buildFlight(log: FlightLog, video: VideoLog | null, videoOffset 
   const cells = estimateCells(maxV);
 
   const points: Point[] = log.samples.map((s) => ({ ...s }));
-  const gps: Point[] = [];
-  for (const p of points) {
-    if (p.lat === undefined || p.lon === undefined) continue;
-    if (gps.length && isGlitch(gps[gps.length - 1], p)) {
-      delete p.lat;
-      delete p.lon;
-      continue;
-    }
-    gps.push(p);
-  }
+  const { gps, fixCount, fixInterval } = cleanGps(points);
 
   // Point de départ : première position avec suffisamment de satellites si dispo
   const homePt = gps.find((p) => (p.sats ?? 99) >= 6) ?? gps[0];
@@ -104,6 +161,8 @@ export function buildFlight(log: FlightLog, video: VideoLog | null, videoOffset 
     home,
     cells,
     duration: points.length ? points[points.length - 1].t : 0,
+    gpsFixes: fixCount,
+    gpsInterval: fixInterval,
   };
   attachVideo(flight, videoOffset);
   return flight;
