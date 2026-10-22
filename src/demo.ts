@@ -107,6 +107,8 @@ export function generateDemo(): { csv: string; srt: string } {
     const shadow = dist > 7000 ? (dist - 7000) / 30 : 0;
     let rqly = Math.round(Math.max(0, Math.min(100, 100 - Math.max(0, -snr) * 4 - shadow + noise(2))));
     if (dist < 1500) rqly = Math.min(100, Math.max(rqly, 98));
+    // Courte perte de liaison derrière le relief, au point le plus éloigné
+    if (dist > 8320) rqly = 0;
 
     // Batterie 6S Li-ion
     const thr = flying ? 1500 + Math.round(alt > 100 ? 120 : 220) + Math.round(noise(40)) : 1000;
@@ -119,7 +121,8 @@ export function generateDemo(): { csv: string; srt: string } {
 
     const sec = startSec + t;
     const time = `${pad(sec / 3600)}:${pad((sec / 60) % 60)}:${pad(sec % 60)}.${pad(Math.round((sec % 1) * 1000), 3)}`;
-    const fm = !flying && t < preArm ? '!ERR' : flying ? 'ANGL' : 'ACRO';
+    // Mode de vol Betaflight : "*" = désarmé
+    const fm = flying ? 'ACRO' : 'ACRO*';
 
     rows.push([
       '2026-09-14', time, rssi1, rssi2, rqly, snr, 0, 'D250', tpwr,

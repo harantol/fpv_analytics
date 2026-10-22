@@ -10,6 +10,7 @@ import { groundElevations } from './elevation';
 import { generateDemo } from './demo';
 import type { FlightLog, VideoLog } from './types';
 import { isNative, setupNative } from './native';
+import { compactEvents, detectEvents, type FlightEvent } from './events';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -85,6 +86,9 @@ async function showFlight() {
   renderStats(computeStats(flight));
   charts.setFlight(flight);
   await map.setFlight(flight, state.metric!);
+  const events = compactEvents(detectEvents(flight.points));
+  map.setEvents(events, gpsPointAt);
+  renderEvents(events);
   renderLegend();
 
   const slider = $<HTMLInputElement>('time-slider');
@@ -128,6 +132,28 @@ function renderLegend() {
   $('legend-bar').style.background = gradientCss(m);
   $('legend-min').textContent = fmt(dom[0], m.digits);
   $('legend-max').textContent = `${fmt(dom[1], m.digits)} ${m.unit}`;
+}
+
+// ---------- Événements ----------
+
+function renderEvents(events: FlightEvent[]) {
+  const el = $('events');
+  el.hidden = events.length === 0;
+  const icon: Record<FlightEvent['kind'], string> = {
+    arm: '🟢', disarm: '⚪', failsafe: '⛔', linkLost: '📡', linkLow: '📶', rescue: '🛟', mode: '🎛️', rfmd: '📻', tpwr: '⚡', gap: '⏸️',
+  };
+  el.innerHTML =
+    `<h3>Événements <span class="muted">(${events.length})</span></h3><div class="event-list">` +
+    events
+      .map(
+        (e) =>
+          `<button class="event ${e.severity}" data-t="${e.t}"><span class="mono">${formatDuration(e.t)}</span> ${icon[e.kind]} ${e.label}${
+            e.duration !== undefined && e.kind !== 'gap' ? ` <span class="muted">${e.duration < 10 ? e.duration.toFixed(1) : Math.round(e.duration)} s</span>` : ''
+          }</button>`,
+      )
+      .join('') +
+    '</div>';
+  el.querySelectorAll<HTMLButtonElement>('.event').forEach((b) => b.addEventListener('click', () => setTime(Number(b.dataset.t))));
 }
 
 // ---------- Statistiques ----------
@@ -309,6 +335,12 @@ window.addEventListener('drop', (e) => {
   const files = [...(e.dataTransfer?.files ?? [])];
   if (files.length) loadFiles(files);
 });
+
+// Aide « Configurer mon drone »
+const help = $<HTMLDialogElement>('help');
+document.querySelectorAll('[data-open-help]').forEach((b) => b.addEventListener('click', () => help.showModal()));
+$('help-close').addEventListener('click', () => help.close());
+help.addEventListener('click', (e) => e.target === help && help.close());
 
 $('app-version').textContent = `v${__APP_VERSION__}`;
 setupNative({ isPlaying: () => state.playing, stop: () => setPlaying(false) });

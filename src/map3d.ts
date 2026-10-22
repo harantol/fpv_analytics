@@ -3,6 +3,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { MapboxOverlay } from '@deck.gl/mapbox';
 import { LineLayer, ScatterplotLayer } from '@deck.gl/layers';
 import type { Flight, Point } from './analysis';
+import { EVENT_COLORS, type FlightEvent } from './events';
 import { colorFor, domainOf, type Metric } from './metrics';
 import { TERRAIN_URL } from './elevation';
 
@@ -60,6 +61,7 @@ export class FlightMap {
   private segments: Segment[] = [];
   private curtain: Segment[] = [];
   private current: Point | null = null;
+  private events: { event: FlightEvent; pos: [number, number, number] }[] = [];
   private follow = false;
   private ready: Promise<void>;
   onPick: ((t: number) => void) | null = null;
@@ -144,6 +146,8 @@ export class FlightMap {
     for (let i = 1; i < g.length; i++) {
       const a = g[i - 1];
       const b = g[i];
+      // Pas de segment à travers une interruption du log
+      if (b.t - a.t > 5) continue;
       this.segments.push({
         from: [a.lon!, a.lat!, a.z ?? 0],
         to: [b.lon!, b.lat!, b.z ?? 0],
@@ -152,6 +156,16 @@ export class FlightMap {
       if (i % step === 0 && b.ground !== undefined && b.z !== undefined && b.z > b.ground) {
         this.curtain.push({ from: [b.lon!, b.lat!, b.z], to: [b.lon!, b.lat!, b.ground], color: colorFor(m, m.get(b), dom) });
       }
+    }
+    this.render();
+  }
+
+  /** Repères d'événements (failsafe, armement…) positionnés sur la trace. */
+  setEvents(events: FlightEvent[], at: (t: number) => Point | null) {
+    this.events = [];
+    for (const e of events) {
+      const p = at(e.t);
+      if (p && p.lat !== undefined) this.events.push({ event: e, pos: [p.lon!, p.lat!, p.z ?? 0] });
     }
     this.render();
   }
@@ -193,6 +207,23 @@ export class FlightMap {
         },
       }),
     ];
+    layers.push(
+      new ScatterplotLayer<{ event: FlightEvent; pos: [number, number, number] }>({
+        id: 'events',
+        data: this.events,
+        getPosition: (d) => d.pos,
+        getRadius: (d) => (d.event.severity === 'info' ? 5 : 7),
+        radiusUnits: 'pixels',
+        getFillColor: (d) => EVENT_COLORS[d.event.severity],
+        getLineColor: [255, 255, 255],
+        lineWidthMinPixels: 2,
+        stroked: true,
+        pickable: true,
+        onClick: (info) => {
+          if (info.object && this.onPick) this.onPick(info.object.event.t);
+        },
+      }),
+    );
     if (f.home) {
       const h = f.gps.find((p) => p.lat === f.home!.lat && p.lon === f.home!.lon) ?? f.gps[0];
       layers.push(
