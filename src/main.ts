@@ -16,6 +16,7 @@ import { deleteFlight, flightKey, fromStoredVideo, getFlight, listFlights, reque
 import { pairVideos, toNaiveLocal } from './pairing';
 import { setupOfflineDialog } from './offline-ui';
 import { VideoPlayer } from './videoplayer';
+import { getElrsVersion, packetRate, setElrsVersion, type ElrsVersion } from './elrs';
 import { dvrHints, mergeOsdBitrate } from './osd-parse';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -29,6 +30,8 @@ const state = {
   metric: null as Metric | null,
   t: 0,
   playing: false,
+  /** Échelles de couleur réglées à la main, par mesure (pour le vol affiché). */
+  domains: new Map<string, [number, number]>(),
 };
 
 let map: FlightMap | null = null;
@@ -218,6 +221,8 @@ async function showLibrary() {
 async function showFlight(videoOffset: number) {
   const log = state.log!;
   const flight = buildFlight(log, state.video, videoOffset);
+  applyPacketRate(flight);
+  state.domains.clear();
   state.flight = flight;
 
   $('welcome').hidden = true;
@@ -244,9 +249,7 @@ async function showFlight(videoOffset: number) {
   renderStats(computeStats(flight));
   charts.setFlight(flight);
   await map.setFlight(flight, state.metric!);
-  const events = compactEvents(detectEvents(flight.points));
-  map.setEvents(events, gpsPointAt);
-  renderEvents(events);
+  renderFlightEvents();
   renderLegend();
 
   const slider = $<HTMLInputElement>('time-slider');
@@ -309,12 +312,121 @@ function renderMetricSelect() {
   sel.value = state.metric.id;
 }
 
+/** Échelle de couleur actuelle : réglée à la main, ou null (automatique). */
+function currentDomain(): [number, number] | null {
+  return state.metric ? state.domains.get(state.metric.id) ?? null : null;
+}
+
+/** Étendue des curseurs de la légende : échelle automatique et valeurs du vol. */
+function legendExtent(): [number, number] {
+  const m = state.metric!;
+  const auto = domainOf(m, state.flight!.points);
+  let lo = auto[0];
+  let hi = auto[1];
+  for (const p of state.flight!.points) {
+    const v = m.get(p);
+    if (v === undefined) continue;
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return hi > lo ? [lo, hi] : [lo, lo + 1];
+}
+
 function renderLegend() {
   const m = state.metric!;
-  const dom = domainOf(m, state.flight!.points);
-  $('legend-bar').style.background = gradientCss(m);
+  const [eLo, eHi] = legendExtent();
+  const dom = currentDomain() ?? domainOf(m, state.flight!.points);
+  const pos = (v: number) => Math.min(1000, Math.max(0, Math.round(((v - eLo) / (eHi - eLo)) * 1000)));
+  $<HTMLInputElement>('legend-lo').value = String(pos(dom[0]));
+  $<HTMLInputElement>('legend-hi').value = String(pos(dom[1]));
+  $('legend-bar').style.background = gradientCss(m, pos(dom[0]) / 10, pos(dom[1]) / 10);
   $('legend-min').textContent = fmt(dom[0], m.digits);
   $('legend-max').textContent = `${fmt(dom[1], m.digits)} ${m.unit}`;
+  $('legend-reset').hidden = !currentDomain();
+}
+
+let legendFrame = 0;
+/** Une poignée de la légende a bougé : nouvelle échelle pour la carte. */
+function onLegendInput(which: 'lo' | 'hi') {
+  const m = state.metric;
+  if (!m || !state.flight) return;
+  const [eLo, eHi] = legendExtent();
+  const lo = $<HTMLInputElement>('legend-lo');
+  const hi = $<HTMLInputElement>('legend-hi');
+  // Les poignées ne se croisent pas (écart minimal de 2 %)
+  if (Number(hi.value) - Number(lo.value) < 20) {
+    if (which === 'lo') lo.value = String(Number(hi.value) - 20);
+    else hi.value = String(Number(lo.value) + 20);
+  }
+  const val = (x: string) => eLo + (Number(x) / 1000) * (eHi - eLo);
+  state.domains.set(m.id, [val(lo.value), val(hi.value)]);
+  renderLegend();
+  cancelAnimationFrame(legendFrame);
+  legendFrame = requestAnimationFrame(() => map?.setMetric(m, currentDomain()));
+}
+
+// ---------- Débit de paquets ELRS ----------
+
+function applyPacketRate(f: Flight) {
+  const v = getElrsVersion();
+  for (const p of f.points) {
+    const r = packetRate(p.rfmd, v);
+    if (r) p.pktRate = r.hz;
+    else delete p.pktRate;
+  }
+}
+
+/**
+ * Débit le plus utilisé pendant le vol, et les autres débits rencontrés.
+ * Toujours présent dès que le log contient RFMD (pour garder le choix de version).
+ */
+function packetRateSummary(f: Flight): { main: string; detail: string } | null {
+  const v = getElrsVersion();
+  const time = new Map<string, number>();
+  let detail = '';
+  let unknown = false;
+  for (let i = 1; i < f.points.length; i++) {
+    const raw = f.points[i].rfmd;
+    if (raw === undefined) continue;
+    const r = packetRate(raw, v);
+    if (!r) unknown = true;
+    const label = r?.label ?? `RFMD ${raw}`;
+    time.set(label, (time.get(label) ?? 0) + (f.points[i].t - f.points[i - 1].t));
+    detail ||= r?.detail ?? '';
+  }
+  if (!time.size) return null;
+  const sorted = [...time].sort((a, b) => b[1] - a[1]);
+  const others = sorted.slice(1).map(([l]) => l);
+  const note = unknown ? `valeur inconnue en ELRS ${v}.x` : others.length ? `aussi ${others.join(', ')}` : detail;
+  return { main: sorted[0][0], detail: note };
+}
+
+function renderFlightEvents() {
+  const f = state.flight!;
+  const v = getElrsVersion();
+  const events = compactEvents(detectEvents(f.points)).map((e) => {
+    if (e.kind !== 'rfmd') return e;
+    const from = packetRate(e.from, v)?.label ?? e.from;
+    const to = packetRate(e.to, v)?.label ?? e.to;
+    return { ...e, label: `Débit ELRS ${from} → ${to}` };
+  });
+  map?.setEvents(events, gpsPointAt);
+  renderEvents(events);
+}
+
+/** Changement de version d'ELRS : les débits sont recalculés partout. */
+function onElrsVersion(v: ElrsVersion) {
+  const f = state.flight;
+  setElrsVersion(v);
+  if (!f) return;
+  applyPacketRate(f);
+  renderMetricSelect();
+  renderStats(computeStats(f));
+  charts?.setFlight(f);
+  renderFlightEvents();
+  if (state.metric) map?.setMetric(state.metric, currentDomain());
+  renderLegend();
+  setTime(state.t);
 }
 
 // ---------- Événements ----------
@@ -376,6 +488,13 @@ function renderStats(s: Stats) {
   if (s.failsafes !== undefined) cards.push({ label: 'Pertes de liaison', value: String(s.failsafes), sub: 'RQly à 0 %', level: s.failsafes > 0 ? 'bad' : 'ok' });
   if (s.minRssi !== undefined) cards.push({ label: 'RSSI min', value: fmt(s.minRssi, 0, 'dBm'), level: level(s.minRssi, -100, -108) });
   if (s.maxTpwr !== undefined) cards.push({ label: 'Puissance max', value: fmt(s.maxTpwr, 0, 'mW') });
+  const rates = packetRateSummary(f);
+  if (rates)
+    cards.push({
+      label: 'Débit de paquets ELRS',
+      value: rates.main,
+      sub: `${rates.detail} · <select class="elrs-version" aria-label="Version d'ELRS"><option value="4"${getElrsVersion() === 4 ? ' selected' : ''}>ELRS 4.x</option><option value="3"${getElrsVersion() === 3 ? ' selected' : ''}>ELRS 3.x</option></select>`,
+    });
   if (s.minVideoSignal !== undefined) cards.push({ label: 'Signal vidéo min', value: `${s.minVideoSignal}/4`, level: level(s.minVideoSignal, 2, 1) });
   if (s.avgBitrate !== undefined) cards.push({ label: 'Débit vidéo moyen', value: fmt(s.avgBitrate, 1, 'Mbps') });
   if (s.maxDelay !== undefined) cards.push({ label: 'Latence max', value: fmt(s.maxDelay, 0, 'ms'), level: level(s.maxDelay, 40, 60, false) });
@@ -443,7 +562,7 @@ async function startOsdRead() {
       attachVideo(state.flight, state.flight.videoOffset);
       renderStats(computeStats(state.flight));
       charts?.setFlight(state.flight);
-      if (state.metric) map?.setMetric(state.metric);
+      if (state.metric) map?.setMetric(state.metric, currentDomain());
       setTime(state.t);
     }
     toast(`Débit lu sur l'OSD (${readings.length} mesures).`);
@@ -494,7 +613,8 @@ function renderHud(p: Point | null) {
     ['Vit', fmt(p.speed, 0, 'km/h')],
     ['Batt', p.cellV !== undefined ? fmt(p.cellV, 2, 'V') : fmt(p.voltage, 1, 'V'), [p.voltage !== undefined && p.cellV !== undefined ? fmt(p.voltage, 1, 'V') : '', p.batPct !== undefined ? `${p.batPct}%` : ''].filter(Boolean).join(' · ') || undefined],
     ['LQ', fmt(p.rqly, 0, '%'), rssi !== undefined ? `${rssi} dBm` : undefined],
-    ['TX', fmt(p.tpwr, 0, 'mW'), p.rfmd],
+    ['TX', fmt(p.tpwr, 0, 'mW')],
+    ['ELRS', packetRate(p.rfmd, getElrsVersion())?.label ?? (p.rfmd ? `RFMD ${p.rfmd}` : '–')],
   ];
   if (state.video) rows.push(['Vidéo', p.video?.signal !== undefined ? `${p.video.signal}/4` : '–', p.video ? [fmt(p.video.bitrate, 1, 'Mbps'), fmt(p.video.delay, 0, 'ms')].join(' · ') : 'hors vidéo']);
   if (p.flightMode) rows.push(['Mode', p.flightMode]);
@@ -558,8 +678,20 @@ $('demo-btn').addEventListener('click', () => {
 
 $<HTMLSelectElement>('metric-select').addEventListener('change', (e) => {
   state.metric = metricById((e.target as HTMLSelectElement).value);
-  map?.setMetric(state.metric);
+  map?.setMetric(state.metric, currentDomain());
   renderLegend();
+});
+$('legend-lo').addEventListener('input', () => onLegendInput('lo'));
+$('legend-hi').addEventListener('input', () => onLegendInput('hi'));
+$('legend-reset').addEventListener('click', () => {
+  if (!state.metric) return;
+  state.domains.delete(state.metric.id);
+  map?.setMetric(state.metric, null);
+  renderLegend();
+});
+$('stats').addEventListener('change', (e) => {
+  const t = e.target as HTMLElement;
+  if (t.classList.contains('elrs-version')) onElrsVersion(Number((t as HTMLSelectElement).value) as ElrsVersion);
 });
 
 $<HTMLSelectElement>('basemap-select').addEventListener('change', (e) => map?.setBasemap((e.target as HTMLSelectElement).value as Basemap));
@@ -579,7 +711,7 @@ function setOffset(off: number) {
   if (state.currentId !== null) updateFlight(state.currentId, { videoOffset: off });
   renderStats(computeStats(f));
   charts?.setFlight(f);
-  if (state.metric) map?.setMetric(state.metric);
+  if (state.metric) map?.setMetric(state.metric, currentDomain());
   setTime(state.t);
 }
 $<HTMLInputElement>('offset-input').addEventListener('change', (e) => setOffset(Number((e.target as HTMLInputElement).value) || 0));

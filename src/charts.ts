@@ -51,8 +51,11 @@ export const CHARTS: ChartDef[] = [
   },
   {
     id: 'power',
-    title: "Puissance d'émission",
-    series: [{ label: 'TPWR', unit: 'mW', color: '#ef4444', get: (p) => p.tpwr }],
+    title: "Puissance d'émission et débit de paquets",
+    series: [
+      { label: 'TPWR', unit: 'mW', color: '#ef4444', get: (p) => p.tpwr },
+      { label: 'Débit paquets', unit: 'Hz', color: '#3b82f6', get: (p) => p.pktRate, axis: 1, dash: [4, 4] },
+    ],
   },
   {
     id: 'video',

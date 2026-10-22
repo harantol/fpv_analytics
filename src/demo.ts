@@ -125,7 +125,7 @@ export function generateDemo(): { csv: string; srt: string } {
     const fm = flying ? 'ACRO' : 'ACRO*';
 
     rows.push([
-      '2026-09-14', time, rssi1, rssi2, rqly, snr, 0, 'D250', tpwr,
+      '2026-09-14', time, rssi1, rssi2, rqly, snr, 0, '27', tpwr,
       Math.round(-40 - dist / 400 + noise(3)), Math.max(0, rqly - 2), Math.round(snr + noise(1)),
       volt.toFixed(1), curr.toFixed(1), Math.round(mah), pct,
       fm, `${lat.toFixed(6)} ${lon.toFixed(6)}`, speed.toFixed(1), Math.round(hdg),

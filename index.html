@@ -48,7 +48,16 @@
             <label>Couleur
               <select id="metric-select"></select>
             </label>
-            <div class="legend"><span id="legend-min"></span><div id="legend-bar"></div><span id="legend-max"></span></div>
+            <div class="legend">
+              <span id="legend-min"></span>
+              <div class="legend-scale" title="Faites glisser les poignées pour régler l'échelle">
+                <div id="legend-bar"></div>
+                <input id="legend-lo" class="legend-range" type="range" min="0" max="1000" value="0" aria-label="Borne basse de l'échelle" />
+                <input id="legend-hi" class="legend-range" type="range" min="0" max="1000" value="1000" aria-label="Borne haute de l'échelle" />
+              </div>
+              <span id="legend-max"></span>
+              <button id="legend-reset" class="legend-reset" title="Échelle automatique" hidden>↺</button>
+            </div>
           </div>
           <div class="map-tools2">
             <select id="basemap-select" aria-label="Fond de carte">

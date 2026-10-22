@@ -9,6 +9,9 @@ export interface FlightEvent {
   /** Durée de l'événement (s) quand elle a un sens (perte de liaison…). */
   duration?: number;
   severity: 'info' | 'warn' | 'bad';
+  /** Valeurs avant / après (changement de mode RF ELRS). */
+  from?: string;
+  to?: string;
 }
 
 /**
@@ -106,7 +109,7 @@ export function detectEvents(points: Point[]): FlightEvent[] {
     }
 
     if (prev && p.rfmd && prev.rfmd && p.rfmd !== prev.rfmd) {
-      ev.push({ t: p.t, kind: 'rfmd', label: `Mode ELRS ${prev.rfmd} → ${p.rfmd}`, severity: 'info' });
+      ev.push({ t: p.t, kind: 'rfmd', label: `Mode ELRS ${prev.rfmd} → ${p.rfmd}`, severity: 'info', from: prev.rfmd, to: p.rfmd });
     }
     if (prev && p.tpwr !== undefined && prev.tpwr !== undefined && p.tpwr !== prev.tpwr && p.tpwr > 0 && prev.tpwr > 0) {
       ev.push({ t: p.t, kind: 'tpwr', label: `Puissance ${prev.tpwr} → ${p.tpwr} mW`, severity: 'info' });
