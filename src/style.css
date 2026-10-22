@@ -336,11 +336,68 @@ main {
   gap: 6px;
   font-variant-numeric: tabular-nums;
 }
-#legend-bar {
+.legend-scale {
+  position: relative;
   flex: 1;
-  min-width: 90px;
+  min-width: 120px;
+  height: 22px;
+}
+#legend-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 7px;
   height: 8px;
   border-radius: 4px;
+}
+/* Deux curseurs superposés : seules les poignées réagissent au doigt */
+.legend-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.legend-range::-webkit-slider-runnable-track {
+  background: none;
+  height: 22px;
+}
+.legend-range::-moz-range-track {
+  background: none;
+}
+.legend-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 14px;
+  height: 22px;
+  border-radius: 4px;
+  background: #fff;
+  border: 2px solid #0b1220;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: ew-resize;
+}
+.legend-range::-moz-range-thumb {
+  pointer-events: auto;
+  width: 10px;
+  height: 18px;
+  border-radius: 4px;
+  background: #fff;
+  border: 2px solid #0b1220;
+  cursor: ew-resize;
+}
+.legend-reset {
+  border: 0;
+  background: none;
+  color: #fff;
+  font-size: 16px;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.legend-reset[hidden] {
+  display: none;
 }
 
 .hud {

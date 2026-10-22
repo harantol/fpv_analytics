@@ -67,6 +67,8 @@ export class FlightMap {
   private overlay: MapboxOverlay;
   private flight: Flight | null = null;
   private metric: Metric | null = null;
+  /** Échelle de couleur imposée par l'utilisateur (sinon automatique). */
+  private domain: [number, number] | null = null;
   private segments: Segment[] = [];
   private curtain: Segment[] = [];
   private current: Point | null = null;
@@ -134,6 +136,7 @@ export class FlightMap {
     await this.ready;
     this.flight = flight;
     this.metric = metric;
+    this.domain = null;
     this.current = null;
     (this.map.getSource('shadow') as maplibregl.GeoJSONSource | undefined)?.setData(this.shadowGeoJson());
     this.rebuild();
@@ -148,8 +151,9 @@ export class FlightMap {
     this.map.fitBounds(b, { padding: 60, pitch: 60, bearing: this.map.getBearing(), duration: 1200, maxZoom: 16 });
   }
 
-  setMetric(metric: Metric) {
+  setMetric(metric: Metric, domain: [number, number] | null = null) {
     this.metric = metric;
+    this.domain = domain;
     this.rebuild();
   }
 
@@ -163,7 +167,7 @@ export class FlightMap {
     const m = this.metric;
     if (!f || !m) return;
     const g = f.gps;
-    const dom = domainOf(m, f.points);
+    const dom = this.domain ?? domainOf(m, f.points);
     this.segments = [];
     this.curtain = [];
     const step = Math.max(1, Math.round(g.length / 400));
