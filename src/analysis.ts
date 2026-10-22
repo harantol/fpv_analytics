@@ -16,6 +16,8 @@ export interface Point extends TelemetrySample {
   agl?: number;
   /** Ligne où une nouvelle position GPS est arrivée (les autres sont interpolées). */
   gpsFix?: boolean;
+  /** Débit de paquets ELRS (Hz), déduit de RFMD selon la version d'ELRS choisie. */
+  pktRate?: number;
   video?: VideoSample;
 }
 

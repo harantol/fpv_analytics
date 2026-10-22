@@ -35,6 +35,7 @@ export const METRICS: Metric[] = [
   { id: 'rssi', label: 'RSSI', unit: 'dBm', get: bestRssi, domain: [-115, -50], ramp: 'quality', digits: 0 },
   { id: 'rsnr', label: 'SNR', unit: 'dB', get: (p) => p.rsnr, domain: [-10, 10], ramp: 'quality', digits: 0 },
   { id: 'tpwr', label: "Puissance d'émission", unit: 'mW', get: (p) => p.tpwr, ramp: 'inverse', digits: 0 },
+  { id: 'pktRate', label: 'Débit de paquets ELRS', unit: 'Hz', get: (p) => p.pktRate, ramp: 'sequential', digits: 0 },
   { id: 'tqly', label: 'Downlink (TQly)', unit: '%', get: (p) => p.tqly, domain: [0, 100], ramp: 'quality', digits: 0 },
   { id: 'vSignal', label: 'Signal vidéo', unit: '/4', get: (p) => p.video?.signal, domain: [0, 4], ramp: 'quality', digits: 0 },
   { id: 'vBitrate', label: 'Débit vidéo', unit: 'Mbps', get: (p) => p.video?.bitrate, domain: [0, 50], ramp: 'quality', digits: 1 },
@@ -94,10 +95,15 @@ export function colorFor(m: Metric, v: number | undefined, dom: [number, number]
   return lerpStops(SEQUENTIAL, f);
 }
 
-export function gradientCss(m: Metric): string {
-  const steps = [0, 0.25, 0.5, 0.75, 1].map((f) => {
+/**
+ * Dégradé CSS de la légende. lo et hi (0–100 %) placent les bornes de l'échelle
+ * sur la barre : avant lo et après hi, la couleur reste celle de la borne.
+ */
+export function gradientCss(m: Metric, lo = 0, hi = 100): string {
+  const color = (f: number) => {
     const [r, g, b] = m.ramp === 'quality' ? lerpStops(QUALITY, f) : m.ramp === 'inverse' ? lerpStops(QUALITY, 1 - f) : lerpStops(SEQUENTIAL, f);
-    return `rgb(${r},${g},${b}) ${f * 100}%`;
-  });
-  return `linear-gradient(90deg, ${steps.join(', ')})`;
+    return `rgb(${r},${g},${b})`;
+  };
+  const steps = [0, 0.25, 0.5, 0.75, 1].map((f) => `${color(f)} ${lo + f * (hi - lo)}%`);
+  return `linear-gradient(90deg, ${color(0)} 0%, ${steps.join(', ')}, ${color(1)} 100%)`;
 }
