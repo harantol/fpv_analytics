@@ -1,0 +1,82 @@
+import Dexie, { type EntityTable } from 'dexie';
+import type { FlightLog, VideoLog, VideoSample } from './types';
+import type { Stats } from './analysis';
+
+/** Vidéo associée à un vol : on ne garde que les mesures extraites, jamais la vidéo elle-même. */
+export interface StoredVideo {
+  name: string;
+  samples: VideoSample[];
+  fields: string[];
+  /** Heure de début de l'enregistrement (ms epoch, heure locale « naïve »), si connue. */
+  start?: number;
+}
+
+export interface StoredFlight {
+  id?: number;
+  /** Empreinte du log, pour ne pas importer deux fois le même vol. */
+  key: string;
+  name: string;
+  /** Début du vol (ms, heure locale de la radio interprétée comme UTC), ou date d'import. */
+  date: number;
+  importedAt: number;
+  csv: string;
+  video?: StoredVideo;
+  videoOffset?: number;
+  summary: Pick<Stats, 'duration' | 'maxDist' | 'totalDist' | 'maxAlt' | 'minRqly' | 'minCellV' | 'failsafes'>;
+}
+
+class FlightDb extends Dexie {
+  flights!: EntityTable<StoredFlight, 'id'>;
+  constructor() {
+    super('fpv-analytics');
+    this.version(1).stores({ flights: '++id, &key, date' });
+  }
+}
+
+export const db = new FlightDb();
+
+/** Empreinte simple (FNV-1a) du contenu du log. */
+export function flightKey(csv: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < csv.length; i++) {
+    h ^= csv.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `${csv.length.toString(36)}-${(h >>> 0).toString(36)}`;
+}
+
+export function toStoredVideo(v: VideoLog, start?: number): StoredVideo {
+  return { name: v.name, samples: v.samples, fields: [...v.fields], start };
+}
+
+export function fromStoredVideo(v: StoredVideo): VideoLog {
+  return { name: v.name, samples: v.samples, fields: new Set(v.fields as (keyof VideoSample)[]) };
+}
+
+/** Enregistre (ou met à jour) un vol ; renvoie son id. */
+export async function saveFlight(f: Omit<StoredFlight, 'id' | 'importedAt'>): Promise<number> {
+  const existing = await db.flights.where('key').equals(f.key).first();
+  if (existing) {
+    await db.flights.update(existing.id!, { ...f, video: f.video ?? existing.video, videoOffset: f.video ? f.videoOffset : existing.videoOffset });
+    return existing.id!;
+  }
+  return (await db.flights.add({ ...f, importedAt: Date.now() })) as number;
+}
+
+export const listFlights = () => db.flights.orderBy('date').reverse().toArray();
+export const getFlight = (id: number) => db.flights.get(id);
+export const deleteFlight = (id: number) => db.flights.delete(id);
+export const updateFlight = (id: number, changes: Partial<StoredFlight>) => db.flights.update(id, changes);
+
+/** Demande au navigateur de ne pas effacer les données en cas de manque de place. */
+export async function requestPersistence() {
+  try {
+    if (navigator.storage?.persist && !(await navigator.storage.persisted())) await navigator.storage.persist();
+  } catch {
+    /* non bloquant */
+  }
+}
+
+export function logDate(log: FlightLog): number | null {
+  return log.start ? log.start.getTime() : null;
+}
