@@ -74,7 +74,8 @@ function encodeLog(frames: Frame[], opts: { datetime?: string; firmware?: string
       out.push(...ascii('G'), ...uvb(us), ...uvb(g.sats), ...svb(Math.round(g.lat * 1e7) - home[0]), ...svb(Math.round(g.lon * 1e7) - home[1]), ...svb(Math.round(g.alt * 10)), ...uvb(g.speedCms), ...uvb(Math.round(g.course * 10)));
     }
   });
-  out.push(...ascii('E'), 255, ...ascii('End of log'), 0);
+  // Désarmement (événement 15 : raison, puis fin de log)
+  out.push(...ascii('E'), 15, ...uvb(4), ...ascii('E'), 255, ...ascii('End of log'), 0);
   return out;
 }
 
@@ -148,6 +149,16 @@ describe('parseBlackbox', () => {
     expect(a.samples[5].flightMode).toBe('ANGL');
     expect(b.samples[5].flightMode).toBe('ANGL');
     expect(b.samples[b.samples.length - 1].flightMode).toBe('!FS!');
+  });
+
+  it('désarmement en fin de log ; logs vides ignorés et non numérotés', () => {
+    const [a] = parseBlackbox(file).logs;
+    expect(a.samples[a.samples.length - 1].flightMode).toBe('ANGL*');
+    // Un log réduit à ses en-têtes (armement très court) suivi d'un vrai vol
+    const empty = encodeLog([]);
+    const r = parseBlackbox(new Uint8Array([...empty, ...encodeLog(flight(2))]), 'KL.BBL');
+    expect(r.skipped).toBe(1);
+    expect(r.logs.map((l) => l.name)).toEqual(['KL.BBL']);
   });
 
   it('refuse un fichier qui n\'est pas un Blackbox', () => {

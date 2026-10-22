@@ -53,6 +53,15 @@ function startDate(raw: unknown): Date | null {
   return new Date(toNaiveLocal(ms));
 }
 
+/** Code de l'événement « désarmement » dans les trames E. */
+const EVENT_DISARM = 15;
+
+/** Bit « ARM » de flightModeFlags. */
+function armBit(): number {
+  const bit = FLIGHT_LOG_FLIGHT_MODE_NAME.indexOf('ARM');
+  return bit >= 0 && bit < 32 ? 1 << bit : 0;
+}
+
 /** Mode de vol au format CRSF de Betaflight, pour réutiliser la détection d'événements. */
 function modeText(flags: number, failsafePhase: number): string {
   if (failsafePhase > 0) return '!FS!';
@@ -91,6 +100,8 @@ function parseOne(parser: FlightLogParser, begin: number, end: number, name: str
   // Modes inconnus tant qu'aucune trame lente (S) n'a été lue
   let flags: number | null = null;
   let fsPhase = 0;
+  // Événement « désarmement » écrit par Betaflight à la fin du vol
+  let disarmed = false;
   let gps: Partial<TelemetrySample> | null = null;
   let gpsT = -Infinity;
   // Échantillon en cours (une tranche de 0,1 s) : moyenne du courant, dernière valeur sinon
@@ -103,7 +114,7 @@ function parseOne(parser: FlightLogParser, begin: number, end: number, name: str
     if (!cur) return;
     if (ampN) cur.current = Math.round((ampSum / ampN) * 100) / 100;
     cur.capacity = Math.round(mah);
-    if (flags !== null) cur.flightMode = modeText(flags, fsPhase);
+    if (flags !== null) cur.flightMode = modeText(disarmed ? flags & ~armBit() : flags, fsPhase);
     if (gps && cur.t - gpsT <= GPS_HOLD) Object.assign(cur, gps);
     samples.push(cur);
     cur = null;
@@ -112,6 +123,10 @@ function parseOne(parser: FlightLogParser, begin: number, end: number, name: str
   };
 
   parser.onFrameReady = (valid, frame, type) => {
+    if (type === 'E' && valid && frame && (frame as { event?: number }).event === EVENT_DISARM) {
+      disarmed = true;
+      return;
+    }
     if (!valid || !Array.isArray(frame)) return;
     if (type === 'I' || type === 'P') {
       // Calcul en microsecondes entières : évite qu'un arrondi range une trame dans la tranche précédente
@@ -181,14 +196,15 @@ export function parseBlackbox(data: ArrayBuffer | Uint8Array, name = 'log.bbl'):
   let skipped = 0;
   for (const [i, begin] of starts.entries()) {
     const end = starts[i + 1] ?? bytes.length;
-    const label = starts.length > 1 ? `${name} #${i + 1}` : name;
     try {
-      const log = parseOne(parser, begin, end, label);
+      const log = parseOne(parser, begin, end, name);
       if (log) logs.push({ ...log, key: bytesKey(bytes.subarray(begin, end)) });
       else skipped++;
     } catch {
       skipped++;
     }
   }
+  // Numérotés seulement s'il y a plusieurs vols (les logs vides, fréquents, ne comptent pas)
+  if (logs.length > 1) logs.forEach((l, i) => (l.name = `${name} #${i + 1}`));
   return { logs, skipped };
 }
