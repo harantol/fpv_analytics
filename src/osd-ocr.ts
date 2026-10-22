@@ -1,7 +1,7 @@
 import { createWorker, OEM, PSM, type Worker } from 'tesseract.js';
 import { set as idbSet } from 'idb-keyval';
 import { relaxedSimd, simd } from 'wasm-feature-detect';
-import { findBitrateRegion, parseBitrate, refineTimes, rejectOutliers, type Box, type OcrWord } from './osd-parse';
+import { findBitrateRegion, locateTiles, parseBitrate, refineTimes, rejectOutliers, type Box, type OcrWord } from './osd-parse';
 
 /**
  * Lecture du débit vidéo affiché sur l'OSD des lunettes (DJI Goggles 3), image par image.
@@ -64,8 +64,6 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
 type RelBox = Box;
 
 const OCR_BASE = () => new URL('./ocr/', document.baseURI).href;
-/** Largeur de l'image analysée pour chercher « Mbps ». */
-const LOCATE_WIDTH = 960;
 
 /**
  * Démarre Tesseract sans qu'il ait besoin du réseau.
@@ -252,6 +250,7 @@ function drawFrame(source: CanvasImageSource, vw: number, vh: number, threshold:
 interface Frame {
   draw(threshold: number, region?: RelBox, scaleTo?: number): HTMLCanvasElement;
   readonly width: number;
+  readonly height: number;
 }
 
 function wordsOf(data: { blocks: { paragraphs: { lines: { words: { text: string; bbox: Box; confidence: number }[] }[] }[] }[] | null }): OcrWord[] {
@@ -269,15 +268,26 @@ interface Located {
 /** Cherche « Mbps » sur une image ; renvoie la zone du nombre en fraction de l'image. */
 async function locate(worker: Worker, frame: Frame): Promise<Located | null> {
   await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT, tessedit_char_whitelist: '', user_defined_dpi: '300' });
+  const tiles = locateTiles(frame.width, frame.height);
   for (const threshold of THRESHOLDS) {
-    const canvas = frame.draw(threshold, undefined, Math.min(LOCATE_WIDTH, frame.width));
-    const { data } = await worker.recognize(canvas, {}, { blocks: true, text: false });
-    const box = findBitrateRegion(wordsOf(data as never));
-    if (box) {
-      return {
-        threshold,
-        region: { x0: box.x0 / canvas.width, x1: Math.min(1, box.x1 / canvas.width), y0: box.y0 / canvas.height, y1: Math.min(1, box.y1 / canvas.height) },
-      };
+    for (const { box: tile, scaleTo } of tiles) {
+      const canvas = frame.draw(threshold, tile, scaleTo);
+      const { data } = await worker.recognize(canvas, {}, { blocks: true, text: false });
+      const box = findBitrateRegion(wordsOf(data as never));
+      if (box) {
+        // Zone ramenée en fraction de l'image entière
+        const tw = tile.x1 - tile.x0;
+        const th = tile.y1 - tile.y0;
+        return {
+          threshold,
+          region: {
+            x0: tile.x0 + (box.x0 / canvas.width) * tw,
+            x1: Math.min(1, tile.x0 + (box.x1 / canvas.width) * tw),
+            y0: tile.y0 + (box.y0 / canvas.height) * th,
+            y1: Math.min(1, tile.y0 + (box.y1 / canvas.height) * th),
+          },
+        };
+      }
     }
   }
   return null;
@@ -300,7 +310,7 @@ async function readNumber(worker: Worker, frame: Frame, at: Located): Promise<nu
 export async function readBitrateFromImage(img: HTMLImageElement | HTMLCanvasElement): Promise<number | null> {
   const w = img instanceof HTMLImageElement ? img.naturalWidth : img.width;
   const h = img instanceof HTMLImageElement ? img.naturalHeight : img.height;
-  const frame: Frame = { width: w, draw: (th, region, scaleTo) => drawFrame(img, w, h, th, region, scaleTo) };
+  const frame: Frame = { width: w, height: h, draw: (th, region, scaleTo) => drawFrame(img, w, h, th, region, scaleTo) };
   const worker = await newWorker();
   try {
     const at = await locate(worker, frame);
@@ -336,7 +346,11 @@ export async function readOsdBitrate(
     const times: number[] = [];
     for (let t = 0.5; t < duration; t += step) times.push(t);
 
-    const frame: Frame = { get width() { return grab.video.videoWidth; }, draw: (th, region, scaleTo) => grab.draw(th, region, scaleTo) };
+    const frame: Frame = {
+      get width() { return grab.video.videoWidth; },
+      get height() { return grab.video.videoHeight; },
+      draw: (th, region, scaleTo) => grab.draw(th, region, scaleTo),
+    };
     let at: Located | null = null;
     let probe: OsdProbe | undefined;
     // L'OSD ne bouge pas pendant une vidéo (il peut changer d'une vidéo à l'autre) :
