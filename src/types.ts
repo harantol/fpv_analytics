@@ -65,4 +65,6 @@ export interface VideoLog {
   name: string;
   samples: VideoSample[];
   fields: Set<keyof VideoSample>;
+  /** Le débit vient de l'OSD lu sur les images (sinon : estimé depuis le fichier). */
+  osd?: boolean;
 }

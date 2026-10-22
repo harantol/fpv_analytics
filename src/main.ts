@@ -12,10 +12,11 @@ import { generateDemo } from './demo';
 import type { FlightLog, VideoLog } from './types';
 import { isNative, setupNative } from './native';
 import { compactEvents, detectEvents, type FlightEvent } from './events';
-import { deleteFlight, flightKey, fromStoredVideo, getFlight, listFlights, requestPersistence, saveFlight, toStoredVideo, updateFlight } from './library';
+import { deleteFlight, flightKey, fromStoredVideo, getFlight, listFlights, requestPersistence, saveFlight, toStoredVideo, updateFlight, updateFlightVideo } from './library';
 import { pairVideos, toNaiveLocal } from './pairing';
 import { setupOfflineDialog } from './offline-ui';
 import { VideoPlayer } from './videoplayer';
+import { mergeOsdBitrate } from './osd-parse';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -35,6 +36,9 @@ let charts: Charts | null = null;
 const player = new VideoPlayer($('video-panel'));
 /** Fichiers vidéo choisis pendant la session (jamais copiés : lus directement). */
 const videoFiles = new Map<string, File>();
+
+/** Lecture du débit sur l'OSD en cours (une à la fois). */
+let osdJob: { name: string; abort: AbortController; pct: number } | null = null;
 
 function toast(msg: string, error = false) {
   const el = $('toast');
@@ -250,6 +254,7 @@ async function showFlight(videoOffset: number) {
   $('video-sync').hidden = !state.video;
   $<HTMLInputElement>('offset-input').value = String(flight.videoOffset);
   attachPlayer();
+  startOsdRead();
   // Avec la vidéo, on démarre là où elle commence
   setTime(player.loaded ? Math.max(0, flight.videoOffset) : firstFlyingTime(flight));
 }
@@ -269,7 +274,11 @@ function renderFiles() {
     // Vol rouvert depuis la bibliothèque : la vidéo n'est pas gardée, on la redemande pour la regarder
     parts.push(`<label class="chip add">🎥 ${escapeHtml(v.name)} · ▶ Ouvrir la vidéo<input type="file" ${isNative ? '' : 'accept=".mp4,.mov"'} hidden id="video-open" /></label>`);
   else parts.push(`<span class="chip">🎥 ${escapeHtml(v.name)}</span>`);
+  if (osdJob && osdJob.name === v?.name)
+    parts.push(`<button id="osd-cancel" class="chip osd" title="Annuler">🔎 Lecture du débit sur l'OSD… <b>${osdJob.pct} %</b> ✕</button>`);
+  else if (v?.osd) parts.push(`<span class="chip">📶 Débit lu sur l'OSD</span>`);
   $('files').innerHTML = parts.join('');
+  document.getElementById('osd-cancel')?.addEventListener('click', () => osdJob?.abort.abort());
   const videoOpen = document.getElementById('video-open') as HTMLInputElement | null;
   videoOpen?.addEventListener('change', () => {
     const file = videoOpen.files?.[0];
@@ -278,6 +287,7 @@ function renderFiles() {
       videoFiles.set(file.name, file);
       renderFiles();
       attachPlayer();
+      startOsdRead();
       setTime(state.t);
     } else importFiles([file]);
   });
@@ -380,6 +390,54 @@ function gpsPointAt(t: number): Point | null {
   const f = state.flight;
   if (!f || f.gps.length === 0) return null;
   return f.gps[indexAt(f.gps, t)];
+}
+
+/**
+ * Lit le débit affiché sur l'OSD de la vidéo (bien plus juste que l'estimation
+ * depuis le fichier), en arrière-plan, puis met à jour courbes, stats et bibliothèque.
+ */
+async function startOsdRead() {
+  const video = state.video;
+  const file = video ? videoFiles.get(video.name) : undefined;
+  if (!video || !file || video.osd || osdJob) return;
+  const job = { name: video.name, abort: new AbortController(), pct: 0 };
+  osdJob = job;
+  const flightId = state.currentId;
+  renderFiles();
+  try {
+    const { readOsdBitrate } = await import('./osd-ocr');
+    const readings = await readOsdBitrate(file, {
+      signal: job.abort.signal,
+      onProgress: ({ done, total }) => {
+        const pct = Math.floor((100 * done) / total);
+        if (pct !== job.pct) {
+          job.pct = pct;
+          if (state.video?.name === job.name) renderFiles();
+        }
+      },
+    });
+    if (job.abort.signal.aborted) return;
+    if (!readings || readings.length < 3) {
+      toast("Débit introuvable sur l'OSD de la vidéo : l'estimation est conservée.");
+      return;
+    }
+    video.samples = mergeOsdBitrate(video.samples, readings);
+    video.osd = true;
+    if (flightId !== null) await updateFlightVideo(flightId, video);
+    if (state.video === video && state.flight) {
+      attachVideo(state.flight, state.flight.videoOffset);
+      renderStats(computeStats(state.flight));
+      charts?.setFlight(state.flight);
+      if (state.metric) map?.setMetric(state.metric);
+      setTime(state.t);
+    }
+    toast(`Débit lu sur l'OSD (${readings.length} mesures).`);
+  } catch (e) {
+    toast(`Lecture de l'OSD impossible : ${(e as Error).message}`, true);
+  } finally {
+    osdJob = null;
+    if (state.video?.name === job.name) renderFiles();
+  }
 }
 
 /** Charge dans le lecteur la vidéo du vol affiché, si son fichier est disponible. */

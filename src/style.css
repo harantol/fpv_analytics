@@ -228,6 +228,12 @@ main {
   background: none;
   padding: 0 14px;
 }
+.chip.osd {
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  border-color: var(--accent);
+}
 .chip.back {
   cursor: pointer;
   font: inherit;
