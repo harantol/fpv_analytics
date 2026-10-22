@@ -181,13 +181,28 @@
       </div>
     </dialog>
 
+    <dialog id="osd-probe" class="help">
+      <header>
+        <h2>Lecture de l'OSD</h2>
+        <button id="osd-probe-close" class="btn small" aria-label="Fermer">✕</button>
+      </header>
+      <div class="help-body">
+        <p id="osd-probe-info"></p>
+        <h3>Image extraite de la vidéo</h3>
+        <img id="osd-probe-raw" class="probe-img" alt="Image extraite de la vidéo" />
+        <h3>Texte blanc retenu (en noir)</h3>
+        <img id="osd-probe-bw" class="probe-img" alt="Image filtrée" />
+        <p class="muted">Une capture d'écran de cette fenêtre aide à corriger la lecture.</p>
+      </div>
+    </dialog>
+
     <footer class="footer">
       FPV Analytics <span id="app-version"></span> · Licence MIT ·
       <a href="https://github.com/harantol/fpv_analytics" target="_blank" rel="noopener">Code source</a>
     </footer>
 
     <div id="drop-overlay" class="drop-overlay" hidden>Déposez vos fichiers .csv / .srt</div>
-    <div id="toast" class="toast" hidden></div>
+    <div id="toast" class="toast" hidden><span id="toast-msg"></span><button id="toast-action" class="toast-action" hidden></button></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

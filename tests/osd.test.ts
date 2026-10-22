@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dvrHints, findBitrateRegion, mergeOsdBitrate, parseBitrate, refineTimes, rejectOutliers, type OcrWord } from '../src/osd-parse';
+import { dvrHints, findBitrateRegion, locateTiles, mergeOsdBitrate, parseBitrate, refineTimes, rejectOutliers, type OcrWord } from '../src/osd-parse';
 
 const word = (text: string, x0: number, y0: number, x1: number, y1: number, confidence = 90): OcrWord => ({ text, bbox: { x0, y0, x1, y1 }, confidence });
 
@@ -127,5 +127,26 @@ describe('lecture du débit sur l\'OSD', () => {
       { t: 1.5, bitrate: 29, frameLoss: 0 },
     ]);
     expect(hints).toEqual([0.5, 1]);
+  });
+});
+
+describe('locateTiles', () => {
+  const covers = (tiles: { box: { x0: number; x1: number; y0: number; y1: number } }[]) =>
+    [0.01, 0.33, 0.5, 0.67, 0.99].every((x) => [0.01, 0.5, 0.99].every((y) => tiles.some(({ box: b }) => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1)));
+
+  it('analyse la 4K en taille réelle, en tuiles qui couvrent toute l\'image, le bas d\'abord', () => {
+    const tiles = locateTiles(3840, 2160);
+    expect(tiles.length).toBe(6);
+    expect(covers(tiles)).toBe(true);
+    expect(tiles[0].box.y1).toBe(1);
+    // Taille réelle : la largeur analysée correspond aux pixels de la tuile
+    for (const t of tiles) expect(t.scaleTo).toBeCloseTo((t.box.x1 - t.box.x0) * 3840, 0);
+  });
+
+  it('agrandit la 1080p pour que le petit texte de l\'OSD reste lisible', () => {
+    const tiles = locateTiles(1920, 1080);
+    expect(tiles.length).toBe(6);
+    expect(covers(tiles)).toBe(true);
+    expect(tiles[0].scaleTo).toBeGreaterThan((tiles[0].box.x1 - tiles[0].box.x0) * 1920 * 1.9);
   });
 });

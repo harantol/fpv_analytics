@@ -701,6 +701,26 @@ html:not(.native) .native-only {
   color: #fff;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
 }
+.toast-action {
+  margin-left: 10px;
+  padding: 2px 8px;
+  border: 1px solid #fff8;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+}
+.toast-action[hidden] {
+  display: none;
+}
+.probe-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  background: #000;
+}
 .toast.error {
   background: var(--bad);
 }

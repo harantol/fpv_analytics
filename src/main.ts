@@ -18,6 +18,7 @@ import { setupOfflineDialog } from './offline-ui';
 import { VideoPlayer } from './videoplayer';
 import { getElrsVersion, packetRate, setElrsVersion, type ElrsVersion } from './elrs';
 import { dvrHints, mergeOsdBitrate } from './osd-parse';
+import type { OsdProbe } from './osd-ocr';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -43,13 +44,24 @@ const videoFiles = new Map<string, File>();
 /** Lecture du débit sur l'OSD en cours (une à la fois). */
 let osdJob: { name: string; abort: AbortController; label: string } | null = null;
 
-function toast(msg: string, error = false) {
+let toastTimer = 0;
+/** Message éphémère, avec éventuellement un bouton d'action. */
+function toast(msg: string, error = false, action?: { label: string; run: () => void }) {
   const el = $('toast');
-  el.textContent = msg;
+  $('toast-msg').textContent = msg;
+  const btn = $('toast-action') as HTMLButtonElement;
+  btn.hidden = !action;
+  btn.textContent = action?.label ?? '';
+  btn.onclick = action
+    ? () => {
+        el.hidden = true;
+        action.run();
+      }
+    : null;
   el.classList.toggle('error', error);
   el.hidden = false;
-  clearTimeout((toast as unknown as { h: number }).h);
-  (toast as unknown as { h: number }).h = window.setTimeout(() => (el.hidden = true), 5000);
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => (el.hidden = true), action ? 12000 : 5000);
 }
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -532,7 +544,7 @@ async function startOsdRead() {
   renderFiles();
   try {
     const { readOsdBitrate } = await import('./osd-ocr');
-    const readings = await readOsdBitrate(file, {
+    const { readings, probe } = await readOsdBitrate(file, {
       signal: job.abort.signal,
       hints: dvrHints(video.samples),
       onProgress: ({ stage, done, total }) => {
@@ -552,7 +564,14 @@ async function startOsdRead() {
     });
     if (job.abort.signal.aborted) return;
     if (!readings || readings.length < 3) {
-      toast("Débit introuvable sur l'OSD de la vidéo : l'estimation est conservée.");
+      const dark = probe && probe.brightness < 10;
+      toast(
+        dark
+          ? "Les images lues dans la vidéo sont noires : débit OSD illisible, l'estimation est conservée."
+          : "Débit introuvable sur l'OSD de la vidéo : l'estimation est conservée.",
+        Boolean(dark),
+        probe ? { label: "Voir l'image", run: () => showOsdProbe(probe) } : undefined,
+      );
       return;
     }
     video.samples = mergeOsdBitrate(video.samples, readings);
@@ -572,6 +591,14 @@ async function startOsdRead() {
     osdJob = null;
     if (state.video?.name === job.name) renderFiles();
   }
+}
+
+/** Montre l'image analysée quand « Mbps » n'a pas été trouvé. */
+function showOsdProbe(p: OsdProbe) {
+  ($('osd-probe-raw') as HTMLImageElement).src = p.raw;
+  ($('osd-probe-bw') as HTMLImageElement).src = p.bw;
+  $('osd-probe-info').textContent = `Vidéo ${p.width}×${p.height}, luminosité moyenne ${Math.round(p.brightness)}/255. « Mbps » n'a été trouvé sur aucune des 5 images testées.`;
+  ($('osd-probe') as HTMLDialogElement).showModal();
 }
 
 /** Charge dans le lecteur la vidéo du vol affiché, si son fichier est disponible. */
@@ -752,6 +779,7 @@ window.addEventListener('drop', (e) => {
 const help = $<HTMLDialogElement>('help');
 document.querySelectorAll('[data-open-help]').forEach((b) => b.addEventListener('click', () => help.showModal()));
 $('help-close').addEventListener('click', () => help.close());
+$('osd-probe-close').addEventListener('click', () => ($('osd-probe') as HTMLDialogElement).close());
 help.addEventListener('click', (e) => e.target === help && help.close());
 
 setupOfflineDialog(() => map);

@@ -150,3 +150,36 @@ export function dvrHints(samples: VideoSample[]): number[] {
   const median = rates.length ? rates[Math.floor(rates.length / 2)] : 0;
   return samples.filter((s) => (s.frameLoss ?? 0) > 5 || (median > 0 && s.bitrate !== undefined && s.bitrate < 0.5 * median)).map((s) => s.t);
 }
+
+/**
+ * Recherche de « Mbps » : l'OSD des Goggles 3 est écrit petit (« Mbps » ≈ 1 % de la
+ * hauteur de l'image). L'image est donc analysée comme si elle faisait 2160 px de haut
+ * (taille réelle en 4K, agrandie en 1080p), découpée en tuiles pour rester rapide.
+ */
+const LOCATE_HEIGHT = 2160;
+/** Taille maximale d'une tuile analysée (px). */
+const TILE = 1400;
+/** Recouvrement entre tuiles (fraction de l'image), pour ne pas couper un mot. */
+const TILE_OVERLAP = 0.04;
+
+/** Tuiles couvrant l'image (en fraction), celles du bas d'abord : « Mbps » y est souvent. */
+export function locateTiles(vw: number, vh: number): { box: Box; scaleTo: number }[] {
+  const k = LOCATE_HEIGHT / Math.max(1, vh);
+  const W = vw * k;
+  const H = vh * k;
+  const cols = Math.max(1, Math.ceil(W / TILE));
+  const rows = Math.max(1, Math.ceil(H / TILE));
+  const out: { box: Box; scaleTo: number }[] = [];
+  for (let r = rows - 1; r >= 0; r--) {
+    for (let c = 0; c < cols; c++) {
+      const box = {
+        x0: Math.max(0, c / cols - TILE_OVERLAP),
+        x1: Math.min(1, (c + 1) / cols + TILE_OVERLAP),
+        y0: Math.max(0, r / rows - TILE_OVERLAP),
+        y1: Math.min(1, (r + 1) / rows + TILE_OVERLAP),
+      };
+      out.push({ box, scaleTo: Math.round((box.x1 - box.x0) * W) });
+    }
+  }
+  return out;
+}

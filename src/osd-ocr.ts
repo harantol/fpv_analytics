@@ -1,7 +1,7 @@
 import { createWorker, OEM, PSM, type Worker } from 'tesseract.js';
 import { set as idbSet } from 'idb-keyval';
 import { relaxedSimd, simd } from 'wasm-feature-detect';
-import { findBitrateRegion, parseBitrate, refineTimes, rejectOutliers, type Box, type OcrWord } from './osd-parse';
+import { findBitrateRegion, locateTiles, parseBitrate, refineTimes, rejectOutliers, type Box, type OcrWord } from './osd-parse';
 
 /**
  * Lecture du débit vidéo affiché sur l'OSD des lunettes (DJI Goggles 3), image par image.
@@ -16,6 +16,24 @@ export interface OsdReading {
   t: number;
   /** Débit lu (Mbps). */
   v: number;
+}
+
+/** Image de test gardée quand « Mbps » n'est pas trouvé, pour voir ce que l'app a reçu. */
+export interface OsdProbe {
+  /** Image telle qu'extraite de la vidéo (data URL). */
+  raw: string;
+  /** Même image après le filtre « texte blanc » (data URL). */
+  bw: string;
+  /** Luminosité moyenne (0–255) : proche de 0 = image noire. */
+  brightness: number;
+  width: number;
+  height: number;
+}
+
+export interface OsdResult {
+  /** Mesures, ou null si « Mbps » n'a été trouvé sur aucune image. */
+  readings: OsdReading[] | null;
+  probe?: OsdProbe;
 }
 
 export interface OsdProgress {
@@ -46,8 +64,6 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
 type RelBox = Box;
 
 const OCR_BASE = () => new URL('./ocr/', document.baseURI).href;
-/** Largeur de l'image analysée pour chercher « Mbps ». */
-const LOCATE_WIDTH = 960;
 
 /**
  * Démarre Tesseract sans qu'il ait besoin du réseau.
@@ -140,15 +156,23 @@ class FrameGrabber {
       this.video.addEventListener('error', () => reject(new Error("cette vidéo ne peut pas être décodée sur cet appareil (enregistrement en H.265 ?). Réglez l'enregistrement des lunettes en H.264.")), { once: true });
     });
     // Certaines WebView ne chargent pas une vidéo hors de la page : on l'y ajoute, invisible
-    Object.assign(this.video.style, { position: 'fixed', left: '0', top: '0', width: '2px', height: '2px', opacity: '0', pointerEvents: 'none' });
+    // (presque invisible plutôt qu'invisible : certaines WebView ne décodent pas une vidéo transparente)
+    Object.assign(this.video.style, { position: 'fixed', left: '0', top: '0', width: '16px', height: '9px', opacity: '0.01', pointerEvents: 'none', zIndex: '-1' });
     document.body.appendChild(this.video);
     this.video.src = this.url;
   }
 
-  ready(): Promise<void> {
-    if (this.video.readyState >= 2) return Promise.resolve();
-    if (this.video.error) return Promise.reject(new Error('cette vidéo ne peut pas être décodée sur cet appareil.'));
-    return withTimeout(this.loaded, 30000, 'la vidéo ne se charge pas (fichier trop lourd ou format non pris en charge ?).');
+  async ready(): Promise<void> {
+    if (this.video.error) throw new Error('cette vidéo ne peut pas être décodée sur cet appareil.');
+    if (this.video.readyState < 2) await withTimeout(this.loaded, 30000, 'la vidéo ne se charge pas (fichier trop lourd ou format non pris en charge ?).');
+    // Sur Android, une vidéo jamais lancée peut donner des images noires au canvas :
+    // on la lance un instant pour démarrer le décodeur, puis on la met en pause.
+    try {
+      await withTimeout(this.video.play(), 3000, '');
+    } catch {
+      /* lecture refusée : on tente quand même */
+    }
+    this.video.pause();
   }
 
   get duration() {
@@ -156,12 +180,41 @@ class FrameGrabber {
   }
 
   async seek(t: number): Promise<void> {
+    const v = this.video as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number };
+    // On attend l'image elle-même, pas seulement la fin du déplacement : sinon le
+    // canvas peut recevoir l'image précédente, ou une image noire.
+    const frame = v.requestVideoFrameCallback
+      ? new Promise<void>((resolve) => {
+          v.requestVideoFrameCallback!(() => resolve());
+          setTimeout(resolve, 1000);
+        })
+      : Promise.resolve();
     await new Promise<void>((resolve) => {
       const done = () => resolve();
-      this.video.addEventListener('seeked', done, { once: true });
+      v.addEventListener('seeked', done, { once: true });
       setTimeout(done, 3000); // sécurité si l'événement ne vient pas
-      this.video.currentTime = t;
+      v.currentTime = t;
     });
+    await frame;
+  }
+
+  /** Image courante réduite, sans filtre, et sa luminosité moyenne. */
+  snapshot(threshold: number): OsdProbe {
+    const w = this.video.videoWidth;
+    const h = this.video.videoHeight;
+    const width = Math.min(640, w);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = Math.max(1, Math.round((h * width) / Math.max(1, w)));
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(this.video, 0, 0, canvas.width, canvas.height);
+    const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 16) sum += (d[i] + d[i + 1] + d[i + 2]) / 3;
+    const brightness = sum / (d.length / 16);
+    const raw = canvas.toDataURL('image/jpeg', 0.8);
+    const bw = this.draw(threshold, undefined, width).toDataURL('image/png');
+    return { raw, bw, brightness, width: w, height: h };
   }
 
   /** Dessine l'image courante (ou une partie, en fraction de l'image) dans un canvas. */
@@ -197,6 +250,7 @@ function drawFrame(source: CanvasImageSource, vw: number, vh: number, threshold:
 interface Frame {
   draw(threshold: number, region?: RelBox, scaleTo?: number): HTMLCanvasElement;
   readonly width: number;
+  readonly height: number;
 }
 
 function wordsOf(data: { blocks: { paragraphs: { lines: { words: { text: string; bbox: Box; confidence: number }[] }[] }[] }[] | null }): OcrWord[] {
@@ -214,15 +268,26 @@ interface Located {
 /** Cherche « Mbps » sur une image ; renvoie la zone du nombre en fraction de l'image. */
 async function locate(worker: Worker, frame: Frame): Promise<Located | null> {
   await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT, tessedit_char_whitelist: '', user_defined_dpi: '300' });
+  const tiles = locateTiles(frame.width, frame.height);
   for (const threshold of THRESHOLDS) {
-    const canvas = frame.draw(threshold, undefined, Math.min(LOCATE_WIDTH, frame.width));
-    const { data } = await worker.recognize(canvas, {}, { blocks: true, text: false });
-    const box = findBitrateRegion(wordsOf(data as never));
-    if (box) {
-      return {
-        threshold,
-        region: { x0: box.x0 / canvas.width, x1: Math.min(1, box.x1 / canvas.width), y0: box.y0 / canvas.height, y1: Math.min(1, box.y1 / canvas.height) },
-      };
+    for (const { box: tile, scaleTo } of tiles) {
+      const canvas = frame.draw(threshold, tile, scaleTo);
+      const { data } = await worker.recognize(canvas, {}, { blocks: true, text: false });
+      const box = findBitrateRegion(wordsOf(data as never));
+      if (box) {
+        // Zone ramenée en fraction de l'image entière
+        const tw = tile.x1 - tile.x0;
+        const th = tile.y1 - tile.y0;
+        return {
+          threshold,
+          region: {
+            x0: tile.x0 + (box.x0 / canvas.width) * tw,
+            x1: Math.min(1, tile.x0 + (box.x1 / canvas.width) * tw),
+            y0: tile.y0 + (box.y0 / canvas.height) * th,
+            y1: Math.min(1, tile.y0 + (box.y1 / canvas.height) * th),
+          },
+        };
+      }
     }
   }
   return null;
@@ -245,7 +310,7 @@ async function readNumber(worker: Worker, frame: Frame, at: Located): Promise<nu
 export async function readBitrateFromImage(img: HTMLImageElement | HTMLCanvasElement): Promise<number | null> {
   const w = img instanceof HTMLImageElement ? img.naturalWidth : img.width;
   const h = img instanceof HTMLImageElement ? img.naturalHeight : img.height;
-  const frame: Frame = { width: w, draw: (th, region, scaleTo) => drawFrame(img, w, h, th, region, scaleTo) };
+  const frame: Frame = { width: w, height: h, draw: (th, region, scaleTo) => drawFrame(img, w, h, th, region, scaleTo) };
   const worker = await newWorker();
   try {
     const at = await locate(worker, frame);
@@ -261,12 +326,13 @@ export async function readBitrateFromImage(img: HTMLImageElement | HTMLCanvasEle
  *  2. une image toutes les 0,2 s là où il se passe quelque chose (débit qui change,
  *     lecture manquante, ou indice `hints` venant du fichier : images perdues…),
  *     pour ne pas rater une chute de débit brève.
- * Renvoie null si « Mbps » n'a été trouvé sur aucune image.
+ * Si « Mbps » n'est trouvé sur aucune image, renvoie readings = null et une image
+ * de test (probe) pour comprendre pourquoi.
  */
 export async function readOsdBitrate(
   file: Blob,
   opts: { step?: number; hints?: number[]; onProgress?: (p: OsdProgress) => void; signal?: AbortSignal } = {},
-): Promise<OsdReading[] | null> {
+): Promise<OsdResult> {
   const step = opts.step ?? 1;
   const progress = opts.onProgress ?? (() => {});
   progress({ stage: 'video', done: 0, total: 1 });
@@ -280,19 +346,27 @@ export async function readOsdBitrate(
     const times: number[] = [];
     for (let t = 0.5; t < duration; t += step) times.push(t);
 
-    const frame: Frame = { get width() { return grab.video.videoWidth; }, draw: (th, region, scaleTo) => grab.draw(th, region, scaleTo) };
+    const frame: Frame = {
+      get width() { return grab.video.videoWidth; },
+      get height() { return grab.video.videoHeight; },
+      draw: (th, region, scaleTo) => grab.draw(th, region, scaleTo),
+    };
     let at: Located | null = null;
+    let probe: OsdProbe | undefined;
     // L'OSD ne bouge pas pendant une vidéo (il peut changer d'une vidéo à l'autre) :
     // on cherche « Mbps » une fois, sur quelques images réparties dans la vidéo
     const probes = [0.05, 0.2, 0.4, 0.6, 0.8];
     for (const [i, f] of probes.entries()) {
-      if (opts.signal?.aborted) return null;
+      if (opts.signal?.aborted) return { readings: null };
       progress({ stage: 'locate', done: i, total: probes.length });
       await grab.seek(duration * f);
       at = await locate(worker, frame);
       if (at) break;
+      // On garde l'image la plus lumineuse : la plus parlante pour comprendre l'échec
+      const snap = grab.snapshot(THRESHOLDS[0]);
+      if (!probe || snap.brightness > probe.brightness) probe = snap;
     }
-    if (!at) return null;
+    if (!at) return { readings: null, probe };
 
     const readings: OsdReading[] = [];
     const readAt = async (t: number) => {
@@ -303,19 +377,19 @@ export async function readOsdBitrate(
     };
     // Passe 1 : 0 → 75 % de la progression
     for (const [i, t] of times.entries()) {
-      if (opts.signal?.aborted) return null;
+      if (opts.signal?.aborted) return { readings: null };
       await readAt(t);
       progress({ stage: 'read', done: Math.round((750 * (i + 1)) / times.length), total: 1000 });
     }
     // Passe 2 : lecture fine autour des changements (au plus autant d'images qu'en passe 1)
     const fine = refineTimes(readings, times, opts.hints ?? [], { step: 0.2, max: times.length });
     for (const [i, t] of fine.entries()) {
-      if (opts.signal?.aborted) return null;
+      if (opts.signal?.aborted) return { readings: null };
       await readAt(t);
       progress({ stage: 'read', done: 750 + Math.round((250 * (i + 1)) / fine.length), total: 1000 });
     }
     readings.sort((a, b) => a.t - b.t);
-    return rejectOutliers(readings);
+    return { readings: rejectOutliers(readings) };
   } finally {
     await worker?.terminate();
     grab.dispose();
