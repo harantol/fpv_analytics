@@ -61,8 +61,8 @@ export const CHARTS: ChartDef[] = [
       { label: 'Débit', unit: 'Mbps', color: '#06b6d4', get: (p) => p.video?.bitrate },
       { label: 'Signal', unit: '/4', color: '#22c55e', get: (p) => p.video?.signal, axis: 1 },
       { label: 'Latence', unit: 'ms', color: '#f43f5e', get: (p) => p.video?.delay, dash: [4, 4] },
+      { label: 'Images perdues', unit: '%', color: '#f43f5e', get: (p) => p.video?.frameLoss, axis: 1 },
     ],
-    ranges: [null, [0, 4.2]],
   },
   {
     id: 'flight',

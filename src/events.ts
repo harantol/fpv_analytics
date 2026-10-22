@@ -1,6 +1,6 @@
 import type { Point } from './analysis';
 
-export type EventKind = 'arm' | 'disarm' | 'failsafe' | 'linkLost' | 'linkLow' | 'rescue' | 'mode' | 'rfmd' | 'tpwr' | 'gap';
+export type EventKind = 'arm' | 'disarm' | 'failsafe' | 'linkLost' | 'linkLow' | 'rescue' | 'mode' | 'rfmd' | 'tpwr' | 'gap' | 'videoLoss';
 
 export interface FlightEvent {
   t: number;
@@ -25,6 +25,12 @@ export function parseFlightMode(fm: string | undefined): { armed?: boolean; mode
 }
 
 const LOW_LQ = 50;
+/** Part d'images perdues (%) à partir de laquelle on signale une coupure vidéo. */
+const VIDEO_LOSS = 50;
+
+function videoLossEvent(start: number, end: number, max: number): FlightEvent {
+  return { t: start, kind: 'videoLoss', label: max >= 99 ? 'Coupure vidéo' : `Vidéo saccadée (${Math.round(max)} % perdues)`, duration: end - start, severity: max >= 99 ? 'bad' : 'warn' };
+}
 /** Durée minimale (s) pour signaler une liaison faible, afin d'éviter le bruit. */
 const MIN_LOW = 1;
 /** Trou dans le log au-delà duquel on signale une interruption (s). */
@@ -40,6 +46,8 @@ export function detectEvents(points: Point[]): FlightEvent[] {
   let lowMin = 100;
   let fsActive = false;
   let rescueActive = false;
+  let videoLossStart: number | null = null;
+  let videoLossMax = 0;
 
   const closeLow = (t: number) => {
     if (lowStart !== null && t - lowStart >= MIN_LOW) {
@@ -83,6 +91,16 @@ export function detectEvents(points: Point[]): FlightEvent[] {
       }
     }
 
+    const loss = p.video?.frameLoss;
+    if (loss !== undefined && loss >= VIDEO_LOSS) {
+      if (videoLossStart === null) videoLossStart = p.t;
+      videoLossMax = Math.max(videoLossMax, loss);
+    } else if (videoLossStart !== null) {
+      ev.push(videoLossEvent(videoLossStart, p.t, videoLossMax));
+      videoLossStart = null;
+      videoLossMax = 0;
+    }
+
     if (prev && p.rfmd && prev.rfmd && p.rfmd !== prev.rfmd) {
       ev.push({ t: p.t, kind: 'rfmd', label: `Mode ELRS ${prev.rfmd} → ${p.rfmd}`, severity: 'info' });
     }
@@ -94,6 +112,7 @@ export function detectEvents(points: Point[]): FlightEvent[] {
   const end = points.length ? points[points.length - 1].t : 0;
   if (lostStart !== null) ev.push({ t: lostStart, kind: 'linkLost', label: 'Perte de liaison radio', duration: end - lostStart, severity: 'bad' });
   closeLow(end);
+  if (videoLossStart !== null) ev.push(videoLossEvent(videoLossStart, end, videoLossMax));
   return ev.sort((a, b) => a.t - b.t);
 }
 

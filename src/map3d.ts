@@ -80,9 +80,14 @@ export class FlightMap {
     this.map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
     this.overlay = new MapboxOverlay({ interleaved: true, layers: [] });
     this.map.addControl(this.overlay);
-    this.ready = new Promise((resolve) => this.map.once('load', () => resolve()));
+    // On attend seulement le style, pas les tuiles : l'événement « load » n'arrive
+    // jamais si des tuiles échouent (pas de réseau sur le terrain).
+    this.ready = new Promise((resolve) => {
+      if (this.map.isStyleLoaded()) resolve();
+      else this.map.once('style.load', () => resolve());
+    });
     // L'attribution compacte s'affiche dépliée au démarrage : on la replie
-    this.map.once('load', () => container.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show'));
+    this.ready.then(() => container.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show'));
     this.map.on('style.load', () => this.addShadowLayer());
   }
 
