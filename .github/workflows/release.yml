@@ -1,0 +1,47 @@
+# Chaque merge sur main : tests, version, tag et release GitHub.
+# Le magasin F-Droid perso (magasin-fdroid sur S13) récupère l'APK attaché à la release.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        id: version
+        run: echo "version=$(node scripts/version.mjs)" >> "$GITHUB_OUTPUT"
+
+      - name: Tag
+        env:
+          TAG: v${{ steps.version.outputs.version }}
+        run: |  # une relance du même commit a déjà son tag
+          git ls-remote --exit-code --tags origin "$TAG" || {
+            git tag "$TAG" && git push origin "$TAG"
+          }
+
+      # Les notes (titre de la PR mergée) deviennent les notes de version dans F-Droid.
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.version.outputs.version }}
+        run: |
+          gh release view "$TAG" > /dev/null 2>&1 && exit 0  # une relance : déjà publiée
+          notes=$(git log -1 --format=%b | grep -v -E '^(Co-Authored-By:|Claude-Session:|🤖)' || true)
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes "${notes:-$TAG}"

@@ -32,10 +32,10 @@ npm test         # tests des parseurs et des calculs
 npm run build    # version statique dans dist/
 ```
 
-## Versions et contributions
+## Versions et publication
 
-- Les messages de commit suivent [Conventional Commits](https://www.conventionalcommits.org/fr/) : `feat: …` (nouvelle fonction → version mineure), `fix: …` (correction → version patch), `feat!: …` (changement cassant).
-- [release-please](https://github.com/googleapis/release-please) tient à jour une PR de release (version dans `package.json` + `CHANGELOG.md`). La merger crée le tag `vX.Y.Z` et la release GitHub.
+- Version `MAJEUR.MINEUR` (même règle que auto_pid_tuning) : MAJEUR est dans le fichier `VERSION`, MINEUR compte les merges sur `main` depuis le dernier changement de `VERSION` (`scripts/version.mjs`). Changer `VERSION` repart à `X.0`.
+- Chaque merge sur `main` (`.github/workflows/release.yml`) : tests, tag `vX.Y`, release GitHub dont les notes sont le titre de la PR mergée.
 - La CI (`.github/workflows/ci.yml`) vérifie types, tests et build sur chaque PR.
 
 ## Structure
