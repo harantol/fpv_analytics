@@ -75,7 +75,7 @@ function loadAssets(): Promise<{ worker: string; core: string }> {
     const [worker, coreUrl, lang] = await Promise.all([
       blobUrlOf(`${base}worker.min.js`, 'application/javascript'),
       blobUrlOf(`${base}${core}`, 'application/javascript'),
-      fetch(`${base}eng.traineddata.gz`).then((r) => {
+      fetch(`${base}eng.traineddata.bin`).then((r) => {
         if (!r.ok) throw new Error(`données de langue introuvables (${r.status})`);
         return r.arrayBuffer();
       }),
