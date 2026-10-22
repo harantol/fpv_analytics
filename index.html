@@ -13,7 +13,7 @@
       <div class="actions">
         <label class="btn primary">
           Ouvrir<span class="wide">&nbsp;des fichiers</span>
-          <input id="file-input" type="file" accept=".csv,.srt,.txt,.mp4,.mov" multiple hidden />
+          <input id="file-input" type="file" accept=".csv,.srt,.txt,.mp4,.mov,.bbl,.bfl,.bbs" multiple hidden />
         </label>
         <button id="demo-btn" class="btn">Démo</button>
         <button class="btn icon-help" data-open-help aria-label="Configurer mon drone" title="Configurer mon drone">?</button>
@@ -27,12 +27,13 @@
           <p><span class="web-only">Glissez-déposez vos fichiers ici, ou utilisez</span><span class="native-only">Utilisez</span> « Ouvrir ». Vous pouvez sélectionner plusieurs logs et vidéos d'un coup : chaque vidéo est associée à son vol d'après l'heure. Les vols sont gardés dans l'app. Tout est traité sur votre appareil : aucun fichier n'est envoyé sur un serveur.</p>
           <ul>
             <li><b>Log télémétrie radio (.csv)</b> : carte SD de la radio EdgeTX / OpenTX (dossier <code>LOGS</code>), avec ELRS, Crossfire, FrSky… → trace GPS, batterie, liaison radio.</li>
+            <li><b>et/ou log Blackbox (.bbl / .bfl)</b> du contrôleur de vol Betaflight → trace GPS précise, batterie, gaz et modes de vol, à 10 mesures par seconde.</li>
             <li><b>Vidéo des lunettes (optionnel)</b> : enregistrement <code>.mp4</code> des DJI Goggles 3 (débit reçu, images perdues), ou sous-titres <code>.srt</code> des anciennes lunettes DJI / Walksnail → qualité de la liaison vidéo. Seul l'index de la vidéo est lu : l'analyse est rapide et la vidéo n'est pas copiée.</li>
           </ul>
           <p><button class="btn" data-open-help>Comment configurer drone et radio pour avoir de bons logs ?</button></p>
         </div>
         <p id="intro-short" class="intro-short muted" hidden>
-          « Ouvrir » pour importer de nouveaux logs radio (.csv) et vidéos. ·
+          « Ouvrir » pour importer de nouveaux logs radio (.csv), Blackbox (.bbl) et vidéos. ·
           <button class="linklike" data-open-help>Configurer mon drone</button>
         </p>
         <div id="library" class="library"></div>
@@ -139,7 +140,15 @@
           <li>Réglez la <b>date et l'heure</b> de la radio : elles servent à retrouver les vols et à synchroniser la vidéo.</li>
         </ol>
 
-        <h3>4. DJI O4 / Goggles 3</h3>
+        <h3>4. Blackbox Betaflight (optionnel, recommandé)</h3>
+        <ul>
+          <li>Le Blackbox enregistre dans le contrôleur de vol le GPS, la tension, le courant, les gaz et les modes de vol, <b>sans passer par la télémétrie</b> : la trace GPS est bien plus fine que dans le log radio.</li>
+          <li>Onglet <i>Blackbox</i> : enregistrement sur la mémoire flash ou la carte SD, avec les <b>champs GPS</b> activés (par défaut). En long range, choisissez une <b>fréquence de 250 à 500 Hz</b> : à 2 kHz, une mémoire flash de 16 Mo est pleine en quelques minutes.</li>
+          <li>Pour que l'heure du vol soit connue, le contrôleur de vol la prend du GPS : vérifiez que la date du log est correcte dans le Blackbox Explorer.</li>
+          <li>Récupération : Betaflight Configurator → onglet <i>Blackbox</i> → <i>Activer le mode stockage de masse</i>, puis copiez le fichier <code>.bbl</code> / <code>.bfl</code> sur le téléphone. Un fichier contient un log par armement : chacun devient un vol.</li>
+        </ul>
+
+        <h3>5. DJI O4 / Goggles 3</h3>
         <ul>
           <li>Les Goggles 3 n'écrivent pas de fichier <code>.srt</code>. La qualité vidéo vient de la <b>vidéo enregistrée par les lunettes</b> : le <b>débit est lu sur l'OSD</b> (le nombre au-dessus de « Mbps », où qu'il soit sur l'écran), et les images perdues révèlent les coupures et saccades. La lecture du débit se fait sur le téléphone, en arrière-plan, après l'import (environ 1 à 2 min pour 10 min de vidéo). Si « Mbps » n'est pas trouvé, un débit estimé depuis le fichier est utilisé.</li>
           <li>Activez l'<b>enregistrement</b> dans les lunettes (idéalement au démarrage automatique) et gardez-les <b>à l'heure</b> via l'app DJI Fly : l'heure du fichier sert à le caler sur le log radio. Un réglage manuel ± 1 s reste possible.</li>
@@ -147,7 +156,7 @@
           <li><b>Regarder la vidéo pendant l'analyse</b> : importez le <code>.mp4</code> avec le log. La vidéo s'affiche à côté de la carte, synchronisée avec les courbes : un clic sur une courbe ou un événement montre l'image du même instant. Réglez finement la synchro avec les boutons ±0,1 s. Pour un vol rouvert depuis « Mes vols », touchez « ▶ Ouvrir la vidéo » (la vidéo n'est pas copiée dans l'app).</li>
         </ul>
 
-        <h3>5. Récupérer les fichiers sur le téléphone</h3>
+        <h3>6. Récupérer les fichiers sur le téléphone</h3>
         <ul>
           <li>Branchez la radio au téléphone en <b>USB-C (OTG)</b> et choisissez <i>USB Storage (SD)</i> sur la radio.</li>
           <li>Dans l'app : <b>Ouvrir</b> → dossier <code>LOGS</code> → fichiers <code>Modèle-AAAA-MM-JJ-HHMMSS.csv</code>.</li>
@@ -197,11 +206,11 @@
     </dialog>
 
     <footer class="footer">
-      FPV Analytics <span id="app-version"></span> · Licence MIT ·
+      FPV Analytics <span id="app-version"></span> · Licence GPL-3.0 ·
       <a href="https://github.com/harantol/fpv_analytics" target="_blank" rel="noopener">Code source</a>
     </footer>
 
-    <div id="drop-overlay" class="drop-overlay" hidden>Déposez vos fichiers .csv / .srt</div>
+    <div id="drop-overlay" class="drop-overlay" hidden>Déposez vos fichiers .csv / .bbl / .mp4 / .srt</div>
     <div id="toast" class="toast" hidden><span id="toast-msg"></span><button id="toast-action" class="toast-action" hidden></button></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

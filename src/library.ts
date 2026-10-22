@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { FlightLog, VideoLog, VideoSample } from './types';
+import type { FlightLog, TelemetrySample, VideoLog, VideoSample } from './types';
 import type { Stats } from './analysis';
 
 /** Vidéo associée à un vol : on ne garde que les mesures extraites, jamais la vidéo elle-même. */
@@ -13,6 +13,16 @@ export interface StoredVideo {
   osd?: boolean;
 }
 
+/** Log Blackbox déjà converti (10 Hz) : le fichier brut n'est jamais conservé. */
+export interface StoredLog {
+  name: string;
+  /** Début (ms, heure locale « naïve »), si l'horloge du FC était réglée. */
+  start: number | null;
+  samples: TelemetrySample[];
+  fields: string[];
+  firmware?: string;
+}
+
 export interface StoredFlight {
   id?: number;
   /** Empreinte du log, pour ne pas importer deux fois le même vol. */
@@ -21,7 +31,10 @@ export interface StoredFlight {
   /** Début du vol (ms, heure locale de la radio interprétée comme UTC), ou date d'import. */
   date: number;
   importedAt: number;
-  csv: string;
+  /** Log radio EdgeTX (texte du .csv). */
+  csv?: string;
+  /** Log Blackbox du contrôleur de vol. */
+  bbx?: StoredLog;
   video?: StoredVideo;
   videoOffset?: number;
   summary: Pick<Stats, 'duration' | 'maxDist' | 'totalDist' | 'maxAlt' | 'minRqly' | 'minCellV' | 'failsafes'>;
@@ -45,6 +58,21 @@ export function flightKey(csv: string): string {
     h = Math.imul(h, 0x01000193);
   }
   return `${csv.length.toString(36)}-${(h >>> 0).toString(36)}`;
+}
+
+export function toStoredLog(log: FlightLog): StoredLog {
+  return { name: log.name, start: log.start ? log.start.getTime() : null, samples: log.samples, fields: [...log.fields], firmware: log.firmware };
+}
+
+export function fromStoredLog(l: StoredLog): FlightLog {
+  return {
+    name: l.name,
+    start: l.start === null ? null : new Date(l.start),
+    samples: l.samples,
+    fields: new Set(l.fields as (keyof TelemetrySample)[]),
+    source: 'blackbox',
+    firmware: l.firmware,
+  };
 }
 
 export function toStoredVideo(v: VideoLog, start?: number): StoredVideo {

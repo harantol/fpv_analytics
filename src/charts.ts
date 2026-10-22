@@ -46,6 +46,8 @@ export const CHARTS: ChartDef[] = [
       { label: 'TQly', unit: '%', color: '#93c5fd', get: (p) => p.tqly, dash: [4, 4] },
       { label: 'RSSI', unit: 'dBm', color: '#eab308', get: bestRssi, axis: 1 },
       { label: 'SNR', unit: 'dB', color: '#a855f7', get: (p) => p.rsnr, axis: 1, dash: [2, 3] },
+      // RSSI vu par le contrôleur de vol (Blackbox), seulement sans log radio
+      { label: 'RSSI FC', unit: '%', color: '#3b82f6', get: (p) => (p.rqly === undefined ? p.fcRssi : undefined) },
     ],
     ranges: [[0, 105], null],
   },
@@ -75,6 +77,7 @@ export const CHARTS: ChartDef[] = [
       { label: 'Hauteur sol', unit: 'm', color: '#10b981', get: (p) => p.agl, dash: [4, 4] },
       { label: 'Distance', unit: 'km', color: '#e879f9', get: (p) => (p.dist === undefined ? undefined : p.dist / 1000), axis: 1, dash: [2, 3] },
       { label: 'Vitesse', unit: 'km/h', color: '#facc15', get: (p) => p.speed, axis: 1 },
+      { label: 'Gaz', unit: '%', color: '#a3a3a3', get: (p) => p.throttle, axis: 1, dash: [4, 4] },
     ],
   },
 ];

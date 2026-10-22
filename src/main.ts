@@ -12,7 +12,8 @@ import { generateDemo } from './demo';
 import type { FlightLog, VideoLog } from './types';
 import { isNative, setupNative } from './native';
 import { compactEvents, detectEvents, type FlightEvent } from './events';
-import { deleteFlight, flightKey, fromStoredVideo, getFlight, listFlights, requestPersistence, saveFlight, toStoredVideo, updateFlight, updateFlightVideo } from './library';
+import { deleteFlight, flightKey, fromStoredLog, fromStoredVideo, getFlight, listFlights, requestPersistence, saveFlight, toStoredLog, toStoredVideo, updateFlight, updateFlightVideo, type StoredLog } from './library';
+import type { BlackboxLog } from './parsers/blackbox';
 import { pairVideos, toNaiveLocal } from './pairing';
 import { setupOfflineDialog } from './offline-ui';
 import { VideoPlayer } from './videoplayer';
@@ -102,8 +103,37 @@ function videoOffsetFor(flight: Flight, pv: ParsedVideo | null): number {
   return logStart ? Math.round((pv.start - logStart) / 1000) : 0;
 }
 
+const isBlackboxName = (f: File) => /\.(bbl|bfl|bbs)$/i.test(f.name);
+
+/** Fichier Blackbox : par l'extension, ou par son en-tête (fichier renommé). */
+async function looksLikeBlackbox(file: File): Promise<boolean> {
+  if (isBlackboxName(file)) return true;
+  // Le parseur n'est chargé qu'au besoin : simple test de l'en-tête ici
+  return (await file.slice(0, 64).text()).includes('H Product:Blackbox flight data recorder');
+}
+
+/** Lit un fichier Blackbox : un vol par armement. */
+async function readBlackbox(file: File): Promise<BlackboxLog[]> {
+  toast('Lecture du Blackbox…');
+  // Laisse le message s'afficher avant la lecture, qui bloque quelques secondes
+  await new Promise((r) => setTimeout(r, 50));
+  const { parseBlackbox } = await import('./parsers/blackbox');
+  const { logs, skipped } = parseBlackbox(await file.arrayBuffer(), file.name);
+  if (logs.length === 0) throw new Error('aucun vol lisible dans ce Blackbox.');
+  if (skipped) toast(`${file.name} : ${skipped} log(s) vide(s) ou illisible(s) ignoré(s).`);
+  return logs;
+}
+
+interface ImportedLog {
+  id: string;
+  log: FlightLog;
+  key: string;
+  csv?: string;
+  bbx?: StoredLog;
+}
+
 async function importFiles(files: File[]) {
-  const logs: { id: string; log: FlightLog; csv: string }[] = [];
+  const logs: ImportedLog[] = [];
   const videos: (ParsedVideo & { id: string })[] = [];
   if (files.some(isVideoFile)) toast('Analyse de la vidéo…');
   for (const [i, file] of files.entries()) {
@@ -113,9 +143,13 @@ async function importFiles(files: File[]) {
         videos.push({ id: `v${i}`, ...(await parseVideoFile(file)) });
         continue;
       }
+      if (await looksLikeBlackbox(file)) {
+        for (const [k, log] of (await readBlackbox(file)).entries()) logs.push({ id: `l${i}.${k}`, log, key: log.key, bbx: toStoredLog(log) });
+        continue;
+      }
       const text = await file.text();
       if (/-->/.test(text.slice(0, 500))) videos.push({ id: `v${i}`, ...(await parseVideoFile(file)) });
-      else logs.push({ id: `l${i}`, log: parseEdgeTxCsv(text, file.name), csv: text });
+      else logs.push({ id: `l${i}`, log: parseEdgeTxCsv(text, file.name), key: flightKey(text), csv: text });
     } catch (e) {
       toast(`${file.name} : ${(e as Error).message}`, true);
     }
@@ -129,7 +163,7 @@ async function importFiles(files: File[]) {
       if (state.currentId !== null) await updateFlight(state.currentId, { video: toStoredVideo(videos[0].video, videos[0].start), videoOffset: offset });
       await showFlight(offset);
     } else if (videos.length) {
-      toast('Ouvrez d\'abord le log radio (.csv), puis ajoutez la vidéo.');
+      toast('Ouvrez d\'abord le log du vol (radio .csv ou Blackbox), puis ajoutez la vidéo.');
     }
     return;
   }
@@ -142,16 +176,17 @@ async function importFiles(files: File[]) {
   const pairs = logs.length === 1 ? new Map(videos.slice(0, 1).map((v) => [v.id, logs[0].id])) : pairVideos(spans.filter((s) => s.start > 0), videos);
 
   let lastId = -1;
-  for (const { id, log, csv } of logs) {
+  for (const { id, log, key, csv, bbx } of logs) {
     const pv = videos.find((v) => pairs.get(v.id) === id) ?? null;
     const flight = buildFlight(log, pv?.video ?? null);
     const videoOffset = videoOffsetFor(flight, pv);
     const st = computeStats(flight);
     lastId = await saveFlight({
-      key: flightKey(csv),
+      key,
       name: log.name,
       date: log.start?.getTime() ?? toNaiveLocal(Date.now()),
       csv,
+      bbx,
       video: pv ? toStoredVideo(pv.video, pv.start) : undefined,
       videoOffset,
       summary: { duration: st.duration, maxDist: st.maxDist, totalDist: st.totalDist, maxAlt: st.maxAlt, minRqly: st.minRqly, minCellV: st.minCellV, failsafes: st.failsafes },
@@ -159,7 +194,7 @@ async function importFiles(files: File[]) {
   }
   requestPersistence();
   const unpaired = videos.length - pairs.size;
-  if (unpaired > 0) toast(`${unpaired} vidéo(s) sans log radio correspondant.`);
+  if (unpaired > 0) toast(`${unpaired} vidéo(s) sans log de vol correspondant.`);
   if (logs.length === 1) await openFlight(lastId);
   else {
     toast(`${logs.length} vols importés.`);
@@ -172,7 +207,9 @@ async function openFlight(id: number) {
   if (!f) return;
   try {
     state.currentId = id;
-    state.log = parseEdgeTxCsv(f.csv, f.name);
+    if (f.csv !== undefined) state.log = parseEdgeTxCsv(f.csv, f.name);
+    else if (f.bbx) state.log = fromStoredLog(f.bbx);
+    else throw new Error('vol sans log.');
     state.video = f.video ? fromStoredVideo(f.video) : null;
     await showFlight(f.videoOffset ?? 0);
   } catch (e) {
@@ -205,7 +242,7 @@ async function showLibrary() {
         return `<div class="flight-card card" data-id="${f.id}">
           <button class="flight-open" data-id="${f.id}">
             <div class="flight-date">${fmtDate(f.date)}</div>
-            <div class="flight-name">${escapeHtml(f.name)}${f.video ? ' · 🎥' : ''}</div>
+            <div class="flight-name">${escapeHtml(f.name)}${f.csv === undefined && f.bbx ? ' · 📦 Blackbox' : ''}${f.video ? ' · 🎥' : ''}</div>
             <div class="flight-stats">
               <span>⏱ ${formatDuration(s.duration)}</span>
               <span>↔ ${formatDistance(s.maxDist)}</span>
@@ -281,7 +318,7 @@ function firstFlyingTime(f: Flight): number {
 }
 
 function renderFiles() {
-  const parts = [`<button id="back-btn" class="chip back">← Mes vols</button>`, `<span class="chip">📈 ${escapeHtml(state.log!.name)}</span>`];
+  const parts = [`<button id="back-btn" class="chip back">← Mes vols</button>`, `<span class="chip"${state.log!.firmware ? ` title="${escapeHtml(state.log!.firmware)}"` : ''}>${state.log!.source === 'blackbox' ? '📦' : '📈'} ${escapeHtml(state.log!.name)}</span>`];
   if (state.flight?.log.start) parts.push(`<span class="chip">${state.flight.log.start.toLocaleString('fr-FR', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' })}</span>`);
   const v = state.video;
   if (!v) parts.push(`<label class="chip add">+ Ajouter la vidéo<input type="file" ${isNative ? '' : 'accept=".srt,.mp4,.mov"'} hidden id="srt-input" /></label>`);

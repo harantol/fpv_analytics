@@ -29,6 +29,10 @@ export interface TelemetrySample {
   tsnr?: number;
   rfmd?: string;
   flightMode?: string;
+  /** RSSI vu par le contrôleur de vol (%), depuis le Blackbox. */
+  fcRssi?: number;
+  /** Gaz (%), depuis le Blackbox. */
+  throttle?: number;
 }
 
 export interface FlightLog {
@@ -38,6 +42,10 @@ export interface FlightLog {
   samples: TelemetrySample[];
   /** Champs effectivement présents dans le log. */
   fields: Set<keyof TelemetrySample>;
+  /** Origine des données : log radio, Blackbox du contrôleur de vol, ou les deux. */
+  source?: 'radio' | 'blackbox' | 'both';
+  /** Firmware du contrôleur de vol (Blackbox). */
+  firmware?: string;
 }
 
 /** Un échantillon issu d'un fichier .srt des lunettes (DJI O3/O4, Walksnail…). */

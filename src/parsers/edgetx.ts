@@ -28,6 +28,9 @@ const NUMERIC_COLUMNS: Record<NumField, string[]> = {
   tqly: ['tqly'],
   trss: ['trss'],
   tsnr: ['tsnr'],
+  // Uniquement depuis le Blackbox (le gaz du log radio est la position du manche)
+  fcRssi: [],
+  throttle: [],
 };
 
 function splitCsvLine(line: string): string[] {
