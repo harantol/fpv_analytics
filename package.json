@@ -2,8 +2,8 @@
   "name": "fpv-analytics",
   "description": "Analyse de vols FPV long range : trace GPS 3D, batterie, liaison radio et vidéo",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "npm run ocr-assets && vite",
+    "build": "npm run ocr-assets && tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc",
@@ -11,7 +11,8 @@
     "android:open": "cap open android",
     "android:apk": "npm run android:sync && cd android && ./gradlew assembleRelease",
     "assets": "capacitor-assets generate --android --iconBackgroundColor \"#0b1220\" --iconBackgroundColorDark \"#0b1220\" --splashBackgroundColor \"#0b1220\" --splashBackgroundColorDark \"#0b1220\"",
-    "version": "node scripts/version.mjs"
+    "version": "node scripts/version.mjs",
+    "ocr-assets": "node scripts/copy-ocr-assets.mjs"
   },
   "repository": {
     "type": "git",
@@ -29,9 +30,11 @@
     "@deck.gl/core": "^9.4.0",
     "@deck.gl/layers": "^9.4.0",
     "@deck.gl/mapbox": "^9.4.0",
+    "@tesseract.js-data/eng": "^1.0.0",
     "dexie": "^4.4.6",
     "maplibre-gl": "^5.24.0",
     "mp4box": "^2.4.1",
+    "tesseract.js": "^7.0.0",
     "uplot": "^1.6.32"
   },
   "devDependencies": {

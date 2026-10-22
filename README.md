@@ -5,7 +5,7 @@ Application Android (et web) pour analyser des vols de drone FPV long range :
 - **Trace GPS en 3D** sur le relief (imagerie satellite ou carte topo), colorée selon la mesure de votre choix : link quality, RSSI, tension, signal vidéo, altitude, vitesse…
 - **Batterie** : tension (par élément, nombre d'éléments estimé automatiquement), courant, mAh consommés, %.
 - **Liaison radio** : RQly / TQly, RSSI, SNR, puissance d'émission, mode RF. Détection des pertes de liaison (RQly à 0 %) et du temps passé sous 50 %.
-- **Liaison vidéo** : signal (0–4), débit et latence lus dans le `.srt` des lunettes DJI / Walksnail.
+- **Liaison vidéo** : débit lu sur l'OSD de la vidéo des Goggles 3 (OCR [Tesseract.js](https://github.com/naptha/tesseract.js), embarqué, hors ligne) et images perdues ; ou signal, débit et latence du `.srt` des anciennes lunettes DJI / Walksnail.
 - **Lecture du vol** : timeline, lecture accélérée, suivi caméra, HUD, curseur synchronisé entre la carte et les graphiques.
 - **Vidéo des lunettes synchronisée** : la vidéo `.mp4` s'affiche à côté de la carte et suit la lecture ; un clic sur une courbe ou un événement montre l'image du même instant.
 

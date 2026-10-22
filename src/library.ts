@@ -9,6 +9,8 @@ export interface StoredVideo {
   fields: string[];
   /** Heure de début de l'enregistrement (ms epoch, heure locale « naïve »), si connue. */
   start?: number;
+  /** Débit lu sur l'OSD de la vidéo. */
+  osd?: boolean;
 }
 
 export interface StoredFlight {
@@ -46,11 +48,11 @@ export function flightKey(csv: string): string {
 }
 
 export function toStoredVideo(v: VideoLog, start?: number): StoredVideo {
-  return { name: v.name, samples: v.samples, fields: [...v.fields], start };
+  return { name: v.name, samples: v.samples, fields: [...v.fields], start, osd: v.osd };
 }
 
 export function fromStoredVideo(v: StoredVideo): VideoLog {
-  return { name: v.name, samples: v.samples, fields: new Set(v.fields as (keyof VideoSample)[]) };
+  return { name: v.name, samples: v.samples, fields: new Set(v.fields as (keyof VideoSample)[]), osd: v.osd };
 }
 
 /** Enregistre (ou met à jour) un vol ; renvoie son id. */
@@ -79,4 +81,11 @@ export async function requestPersistence() {
 
 export function logDate(log: FlightLog): number | null {
   return log.start ? log.start.getTime() : null;
+}
+
+/** Met à jour les mesures vidéo d'un vol (ex. débit lu sur l'OSD), en gardant le reste. */
+export async function updateFlightVideo(id: number, video: VideoLog) {
+  const f = await db.flights.get(id);
+  if (!f?.video || f.video.name !== video.name) return;
+  await db.flights.update(id, { video: toStoredVideo(video, f.video.start) });
 }

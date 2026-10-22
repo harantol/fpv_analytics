@@ -2,3 +2,6 @@ node_modules
 dist
 *.log
 !tests/fixtures/*.log
+
+# Fichiers OCR copiés depuis node_modules au build
+public/ocr/
