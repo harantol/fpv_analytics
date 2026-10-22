@@ -1,0 +1,35 @@
+{
+  "name": "fpv-analytics",
+  "version": "0.1.0",
+  "description": "Analyse de vols FPV long range : trace GPS 3D, batterie, liaison radio et vidéo",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/harantol/fpv_analytics.git"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/harantol/fpv_analytics/issues"
+  },
+  "homepage": "https://github.com/harantol/fpv_analytics#readme",
+  "dependencies": {
+    "@deck.gl/core": "^9.4.0",
+    "@deck.gl/layers": "^9.4.0",
+    "@deck.gl/mapbox": "^9.4.0",
+    "maplibre-gl": "^5.24.0",
+    "uplot": "^1.6.32"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7",
+    "vitest": "^3.2.7"
+  },
+  "private": true,
+  "type": "module"
+}
