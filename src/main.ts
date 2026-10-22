@@ -11,10 +11,14 @@ import { generateDemo } from './demo';
 import type { FlightLog, VideoLog } from './types';
 import { isNative, setupNative } from './native';
 import { compactEvents, detectEvents, type FlightEvent } from './events';
+import { deleteFlight, flightKey, fromStoredVideo, getFlight, listFlights, requestPersistence, saveFlight, toStoredVideo, updateFlight } from './library';
+import { pairVideos, toNaiveLocal } from './pairing';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const state = {
+  /** Id du vol en bibliothèque (null pour la démo). */
+  currentId: null as number | null,
   log: null as FlightLog | null,
   video: null as VideoLog | null,
   flight: null as Flight | null,
@@ -35,36 +39,162 @@ function toast(msg: string, error = false) {
   (toast as unknown as { h: number }).h = window.setTimeout(() => (el.hidden = true), 5000);
 }
 
-// ---------- Chargement des fichiers ----------
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-async function loadFiles(files: File[]) {
-  const isSrt = (f: File) => /\.srt$/i.test(f.name);
-  // Un nouveau log chargé sans .srt remplace aussi la vidéo précédente
-  if (files.some((f) => !isSrt(f)) && !files.some(isSrt)) state.video = null;
-  for (const file of files) {
+// ---------- Import des fichiers ----------
+
+interface ParsedVideo {
+  video: VideoLog;
+  /** Début / fin de l'enregistrement (ms, heure locale naïve), estimés via la date du fichier. */
+  start: number;
+  end: number;
+}
+
+function parseVideoFile(file: File, text: string): ParsedVideo {
+  const video = parseSrt(text, file.name);
+  const end = toNaiveLocal(file.lastModified);
+  const dur = video.samples[video.samples.length - 1].t * 1000;
+  return { video, start: end - dur, end };
+}
+
+/** Décalage vidéo : par la courbe de tension si possible, sinon par l'heure des fichiers. */
+function videoOffsetFor(flight: Flight, pv: ParsedVideo | null): number {
+  if (!pv) return 0;
+  if (pv.video.fields.has('droneBat')) return guessVideoOffset(flight);
+  const logStart = flight.log.start?.getTime();
+  return logStart ? Math.round((pv.start - logStart) / 1000) : 0;
+}
+
+async function importFiles(files: File[]) {
+  const logs: { id: string; log: FlightLog; csv: string }[] = [];
+  const videos: (ParsedVideo & { id: string })[] = [];
+  for (const [i, file] of files.entries()) {
     try {
       const text = await file.text();
-      if (isSrt(file) || /-->/.test(text.slice(0, 500))) state.video = parseSrt(text, file.name);
-      else state.log = parseEdgeTxCsv(text, file.name);
+      if (/\.srt$/i.test(file.name) || /-->/.test(text.slice(0, 500))) videos.push({ id: `v${i}`, ...parseVideoFile(file, text) });
+      else logs.push({ id: `l${i}`, log: parseEdgeTxCsv(text, file.name), csv: text });
     } catch (e) {
       toast(`${file.name} : ${(e as Error).message}`, true);
     }
   }
-  if (!state.log) {
-    if (state.video) toast('Fichier vidéo chargé. Ajoutez maintenant le log télémétrie (.csv) de la radio.');
+
+  // Vidéo seule : on l'ajoute au vol affiché
+  if (logs.length === 0) {
+    if (videos.length && state.log) {
+      state.video = videos[0].video;
+      const offset = state.flight ? videoOffsetFor(buildFlight(state.log, state.video), videos[0]) : 0;
+      if (state.currentId !== null) await updateFlight(state.currentId, { video: toStoredVideo(videos[0].video, videos[0].start), videoOffset: offset });
+      await showFlight(offset);
+    } else if (videos.length) {
+      toast('Ouvrez d\'abord le log radio (.csv), puis ajoutez la vidéo.');
+    }
     return;
   }
-  await showFlight();
+
+  // Association vidéo ↔ log : évidente s'il n'y a qu'un log, sinon par l'heure
+  const spans = logs.map(({ id, log }) => {
+    const start = log.start?.getTime() ?? 0;
+    return { id, start, end: start + log.samples[log.samples.length - 1].t * 1000 };
+  });
+  const pairs = logs.length === 1 ? new Map(videos.slice(0, 1).map((v) => [v.id, logs[0].id])) : pairVideos(spans.filter((s) => s.start > 0), videos);
+
+  let lastId = -1;
+  for (const { id, log, csv } of logs) {
+    const pv = videos.find((v) => pairs.get(v.id) === id) ?? null;
+    const flight = buildFlight(log, pv?.video ?? null);
+    const videoOffset = videoOffsetFor(flight, pv);
+    const st = computeStats(flight);
+    lastId = await saveFlight({
+      key: flightKey(csv),
+      name: log.name,
+      date: log.start?.getTime() ?? toNaiveLocal(Date.now()),
+      csv,
+      video: pv ? toStoredVideo(pv.video, pv.start) : undefined,
+      videoOffset,
+      summary: { duration: st.duration, maxDist: st.maxDist, totalDist: st.totalDist, maxAlt: st.maxAlt, minRqly: st.minRqly, minCellV: st.minCellV, failsafes: st.failsafes },
+    });
+  }
+  requestPersistence();
+  const unpaired = videos.length - pairs.size;
+  if (unpaired > 0) toast(`${unpaired} vidéo(s) sans log radio correspondant.`);
+  if (logs.length === 1) await openFlight(lastId);
+  else {
+    toast(`${logs.length} vols importés.`);
+    await showLibrary();
+  }
 }
 
-async function showFlight() {
+async function openFlight(id: number) {
+  const f = await getFlight(id);
+  if (!f) return;
+  try {
+    state.currentId = id;
+    state.log = parseEdgeTxCsv(f.csv, f.name);
+    state.video = f.video ? fromStoredVideo(f.video) : null;
+    await showFlight(f.videoOffset ?? 0);
+  } catch (e) {
+    toast(`${f.name} : ${(e as Error).message}`, true);
+  }
+}
+
+// ---------- Bibliothèque ----------
+
+async function showLibrary() {
+  setPlaying(false);
+  $('app').hidden = true;
+  $('welcome').hidden = false;
+  const flights = await listFlights();
+  const el = $('library');
+  $('intro').hidden = flights.length > 0;
+  $('intro-short').hidden = flights.length === 0;
+  if (flights.length === 0) {
+    el.innerHTML = '';
+    return;
+  }
+  const fmtDate = (ms: number) => new Date(ms).toLocaleString('fr-FR', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  el.innerHTML =
+    `<h2>Mes vols <span class="muted">(${flights.length})</span></h2>` +
+    flights
+      .map((f) => {
+        const s = f.summary;
+        const lq = s.minRqly === undefined ? '' : `<span class="badge ${s.minRqly < 30 ? 'bad' : s.minRqly < 70 ? 'warn' : 'ok'}">LQ min ${s.minRqly} %</span>`;
+        const fs = s.failsafes ? `<span class="badge bad">${s.failsafes} perte${s.failsafes > 1 ? 's' : ''} de liaison</span>` : '';
+        return `<div class="flight-card card" data-id="${f.id}">
+          <button class="flight-open" data-id="${f.id}">
+            <div class="flight-date">${fmtDate(f.date)}</div>
+            <div class="flight-name">${escapeHtml(f.name)}${f.video ? ' · 🎥' : ''}</div>
+            <div class="flight-stats">
+              <span>⏱ ${formatDuration(s.duration)}</span>
+              <span>↔ ${formatDistance(s.maxDist)}</span>
+              <span>∑ ${formatDistance(s.totalDist)}</span>
+              ${s.maxAlt !== undefined ? `<span>↑ ${Math.round(s.maxAlt)} m</span>` : ''}
+            </div>
+            <div class="flight-badges">${lq}${fs}</div>
+          </button>
+          <button class="flight-delete btn small" data-id="${f.id}" aria-label="Supprimer">🗑</button>
+        </div>`;
+      })
+      .join('');
+  el.querySelectorAll<HTMLButtonElement>('.flight-open').forEach((b) => b.addEventListener('click', () => openFlight(Number(b.dataset.id))));
+  el.querySelectorAll<HTMLButtonElement>('.flight-delete').forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (!confirm('Supprimer ce vol de la bibliothèque ?')) return;
+      await deleteFlight(Number(b.dataset.id));
+      showLibrary();
+    }),
+  );
+}
+
+// ---------- Affichage d'un vol ----------
+
+async function showFlight(videoOffset: number) {
   const log = state.log!;
-  const flight = buildFlight(log, state.video);
+  const flight = buildFlight(log, state.video, videoOffset);
   state.flight = flight;
-  if (state.video) attachVideo(flight, guessVideoOffset(flight));
 
   $('welcome').hidden = true;
   $('app').hidden = false;
+  window.scrollTo(0, 0);
   if (!map) {
     map = new FlightMap($('map'));
     map.onPick = (t) => setTime(t);
@@ -105,12 +235,13 @@ function firstFlyingTime(f: Flight): number {
 }
 
 function renderFiles() {
-  const parts = [`<span class="chip">📈 ${state.log!.name}</span>`];
+  const parts = [`<button id="back-btn" class="chip back">← Mes vols</button>`, `<span class="chip">📈 ${escapeHtml(state.log!.name)}</span>`];
   if (state.flight?.log.start) parts.push(`<span class="chip">${state.flight.log.start.toLocaleString('fr-FR', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' })}</span>`);
-  parts.push(state.video ? `<span class="chip">🎥 ${state.video.name}</span>` : `<label class="chip add">+ Ajouter le .srt vidéo<input type="file" ${isNative ? '' : 'accept=".srt"'} hidden id="srt-input" /></label>`);
+  parts.push(state.video ? `<span class="chip">🎥 ${escapeHtml(state.video.name)}</span>` : `<label class="chip add">+ Ajouter la vidéo<input type="file" ${isNative ? '' : 'accept=".srt"'} hidden id="srt-input" /></label>`);
   $('files').innerHTML = parts.join('');
+  $('back-btn').addEventListener('click', () => showLibrary());
   const srtInput = document.getElementById('srt-input') as HTMLInputElement | null;
-  srtInput?.addEventListener('change', () => srtInput.files && loadFiles([...srtInput.files]));
+  srtInput?.addEventListener('change', () => srtInput.files && importFiles([...srtInput.files]));
 }
 
 // ---------- Couleur de la trace ----------
@@ -265,19 +396,20 @@ function setPlaying(on: boolean) {
   }
 }
 
-// ---------- Événements ----------
+// ---------- Interactions ----------
 
 $<HTMLInputElement>('file-input').addEventListener('change', (e) => {
   const input = e.target as HTMLInputElement;
-  if (input.files?.length) loadFiles([...input.files]);
+  if (input.files?.length) importFiles([...input.files]);
   input.value = '';
 });
 
 $('demo-btn').addEventListener('click', () => {
   const d = generateDemo();
+  state.currentId = null;
   state.log = parseEdgeTxCsv(d.csv, 'Démo – lac d\'Annecy.csv');
   state.video = parseSrt(d.srt, 'Démo – DJI O3.srt');
-  showFlight();
+  showFlight(guessVideoOffset(buildFlight(state.log, state.video)));
 });
 
 $<HTMLSelectElement>('metric-select').addEventListener('change', (e) => {
@@ -297,6 +429,7 @@ function setOffset(off: number) {
   if (!f) return;
   attachVideo(f, off);
   $<HTMLInputElement>('offset-input').value = String(off);
+  if (state.currentId !== null) updateFlight(state.currentId, { videoOffset: off });
   renderStats(computeStats(f));
   charts?.setFlight(f);
   if (state.metric) map?.setMetric(state.metric);
@@ -333,7 +466,7 @@ window.addEventListener('drop', (e) => {
   dragDepth = 0;
   $('drop-overlay').hidden = true;
   const files = [...(e.dataTransfer?.files ?? [])];
-  if (files.length) loadFiles(files);
+  if (files.length) importFiles(files);
 });
 
 // Aide « Configurer mon drone »
@@ -343,6 +476,14 @@ $('help-close').addEventListener('click', () => help.close());
 help.addEventListener('click', (e) => e.target === help && help.close());
 
 $('app-version').textContent = `v${__APP_VERSION__}`;
-setupNative({ isPlaying: () => state.playing, stop: () => setPlaying(false) });
+setupNative({
+  onBack: () => {
+    if (state.playing) setPlaying(false);
+    else if (!$('app').hidden) showLibrary();
+    else return false;
+    return true;
+  },
+});
 
 if (new URLSearchParams(location.search).has('demo')) $('demo-btn').click();
+else showLibrary();
