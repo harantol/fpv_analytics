@@ -45,9 +45,39 @@ export function haversine(lat1: number, lon1: number, lat2: number, lon2: number
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
-/** Estime le nombre d'éléments LiPo/Li-ion à partir de la tension maximale. */
-export function estimateCells(maxVoltage: number): number | null {
+/**
+ * Estime le nombre d'éléments de la batterie.
+ *
+ * Si le log contient le pourcentage calculé par Betaflight (Bat%), il varie linéairement
+ * avec la tension par élément entre les seuils min et max réglés dans Betaflight : on en
+ * déduit la tension « pleine » (100 %), puis le nombre d'éléments (≈ 4,2 V chacun).
+ * Cela fonctionne même avec une batterie entamée. Sinon, on suppose la batterie
+ * pleine au début du vol.
+ */
+export function estimateCells(maxVoltage: number, samples: { voltage?: number; batPct?: number }[] = []): number | null {
   if (!(maxVoltage > 2.5)) return null;
+  const pairs = samples.filter((s) => s.voltage !== undefined && s.batPct !== undefined && s.voltage > 2.5 && s.batPct > 0 && s.batPct < 100);
+  if (pairs.length >= 4) {
+    const xs = pairs.map((p) => p.voltage!);
+    const ys = pairs.map((p) => p.batPct!);
+    const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
+    const my = ys.reduce((a, b) => a + b, 0) / ys.length;
+    let sxy = 0;
+    let sxx = 0;
+    for (let i = 0; i < xs.length; i++) {
+      sxy += (xs[i] - mx) * (ys[i] - my);
+      sxx += (xs[i] - mx) ** 2;
+    }
+    const yRange = Math.max(...ys) - Math.min(...ys);
+    if (sxx > 0 && yRange >= 8) {
+      const slope = sxy / sxx; // % par volt
+      const full = mx + (100 - my) / slope; // tension totale à 100 %
+      const empty = mx - my / slope; // tension totale à 0 %
+      const n = Math.round(full / 4.2);
+      // Plausible : 100 % entre 4,0 et 4,45 V/élément, 0 % entre 2,5 et 3,8 V/élément
+      if (slope > 0 && n >= 1 && full / n > 4.0 && full / n < 4.45 && empty / n > 2.5 && empty / n < 3.8) return n;
+    }
+  }
   // On suppose la batterie chargée (≤ 4.35 V/élément) au début du vol.
   return Math.max(1, Math.ceil(maxVoltage / 4.35 - 0.05));
 }
@@ -68,8 +98,11 @@ export function indexAt<T extends { t: number }>(arr: T[], target: number): numb
 
 /** Vitesse maximale plausible entre deux positions GPS (m/s, environ 500 km/h). */
 const MAX_GPS_SPEED = 140;
-/** Au-delà de cet écart entre deux positions GPS (s), on n'interpole pas (perte de télémétrie). */
-const MAX_INTERP_GAP = 10;
+/**
+ * Au-delà de cet écart entre deux positions GPS (s), on n'interpole pas. Avec une
+ * télémétrie ELRS lente, une position toutes les 10 à 15 s n'est pas rare.
+ */
+const MAX_INTERP_GAP = 30;
 
 /**
  * Nettoie la trace GPS d'un log radio.
@@ -124,7 +157,7 @@ function cleanGps(points: Point[]): { gps: Point[]; fixCount: number; fixInterva
   const gaps: number[] = [];
   for (let i = 1; i < fixes.length; i++) {
     const dt = fixes[i].t - fixes[i - 1].t;
-    if (dt > 0 && dt <= MAX_INTERP_GAP) gaps.push(dt);
+    if (dt > 0) gaps.push(dt);
   }
   gaps.sort((x, y) => x - y);
   return {
@@ -137,7 +170,7 @@ function cleanGps(points: Point[]): { gps: Point[]; fixCount: number; fixInterva
 export function buildFlight(log: FlightLog, video: VideoLog | null, videoOffset = 0): Flight {
   let maxV = 0;
   for (const s of log.samples) if ((s.voltage ?? 0) > maxV) maxV = s.voltage!;
-  const cells = estimateCells(maxV);
+  const cells = estimateCells(maxV, log.samples);
 
   const points: Point[] = log.samples.map((s) => ({ ...s }));
   const { gps, fixCount, fixInterval } = cleanGps(points);
