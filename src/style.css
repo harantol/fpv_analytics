@@ -365,6 +365,17 @@ main {
   pointer-events: none;
 }
 
+.footer {
+  padding: 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.footer a {
+  color: inherit;
+}
+
 .drop-overlay {
   position: fixed;
   inset: 0;

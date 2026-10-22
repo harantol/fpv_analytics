@@ -32,7 +32,11 @@ npm test         # tests des parseurs et des calculs
 npm run build    # version statique dans dist/
 ```
 
-Le workflow `.github/workflows/deploy.yml` publie l'app sur GitHub Pages à chaque push sur `main` (activez *Settings → Pages → Source : GitHub Actions*).
+## Versions et contributions
+
+- Les messages de commit suivent [Conventional Commits](https://www.conventionalcommits.org/fr/) : `feat: …` (nouvelle fonction → version mineure), `fix: …` (correction → version patch), `feat!: …` (changement cassant).
+- [release-please](https://github.com/googleapis/release-please) tient à jour une PR de release (version dans `package.json` + `CHANGELOG.md`). La merger crée le tag `vX.Y.Z` et la release GitHub.
+- La CI (`.github/workflows/ci.yml`) vérifie types, tests et build sur chaque PR.
 
 ## Structure
 
